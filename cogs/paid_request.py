@@ -338,17 +338,7 @@ class PaidRequest(commands.Cog):
         custom_id = interaction.data.get("custom_id", "")
         
         if custom_id == "create_paid_request_btn":
-            last_req = await database.get_last_submitted_request(interaction.user.id)
-            if last_req:
-                await interaction.response.send_modal(PaidRequestModal(
-                    budget_val=last_req['budget'],
-                    sfw_nsfw_val=last_req['sfw_nsfw'],
-                    payment_method_val=last_req['payment_method'],
-                    use_case_val=last_req['use_case'],
-                    content_val=last_req['content']
-                ))
-            else:
-                await interaction.response.send_modal(PaidRequestModal())
+            await interaction.response.send_modal(PaidRequestModal())
             return
             
         # Parse dynamic buttons
