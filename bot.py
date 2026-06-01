@@ -23,6 +23,7 @@ class ACCarrotBot(commands.Bot):
         # Load extensions/cogs
         await self.load_extension("cogs.warning_tracker")
         await self.load_extension("cogs.paid_request")
+        await self.load_extension("cogs.chatbot")
         print("Cogs loaded.")
         
     async def on_ready(self):

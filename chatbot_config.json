@@ -1,0 +1,149 @@
+{
+  "main_menu": {
+    "text": "Hello! I'm Carrot and I can help you with answering with questions you might have! To get started, please select from provided options:",
+    "buttons": [
+      {
+        "label": "Rules",
+        "emoji": "📜",
+        "action": "message",
+        "text": "## Art Commissions Server Rules\nPlease follow our server rules to keep the community a safe and welcoming space to everyone. Information may change, so double check before acting!\n\n## Table of Content\n> 1. [Server rules](https://discord.com/channels/369798142289510401/492328409175687179/1324494583429730367)\n> 2. [Commission rules](https://discord.com/channels/369798142289510401/492328409175687179/1324496338985029662)\n> 3. [Request rules](https://discord.com/channels/369798142289510401/492328409175687179/1324499255880323182)\n\nThank you for joining Art Commissions server and we hope you enjoy your stay!\nPermanent invite link: https://discord.gg/art"
+      },
+      {
+        "label": "How do I obtain roles?",
+        "emoji": "🎭",
+        "action": "menu",
+        "target": "role-menu"
+      },
+      {
+        "label": "How do I start advertising",
+        "emoji": "📢",
+        "action": "menu",
+        "target": "advertising-menu"
+      },
+      {
+        "label": "I want to commission artists",
+        "emoji": "🎨",
+        "action": "message",
+        "text": "To find an artist you can either look through posts in [#paid-offers](https://discord.com/channels/369798142289510401/550413093306499072) or any other commission related channel or make a paid request post in [#submit-paid-request](https://discord.com/channels/369798142289510401/982673044998852669).\n\nFor more info, read https://discord.com/channels/369798142289510401/1393288825987665990/1476704987227754600."
+      },
+      {
+        "label": "How do I reach out to staff",
+        "emoji": "✉️",
+        "action": "menu",
+        "target": "support-menu"
+      },
+      {
+        "label": "Why can’t I contact ModMail?",
+        "emoji": "❓",
+        "action": "menu",
+        "target": "troubleshoot"
+      },
+      {
+        "label": "I can't access some of the channels",
+        "emoji": "❌",
+        "action": "message",
+        "text": "You are likely unverified and have not unlocked the full access to the server. Head to https://discord.com/channels/369798142289510401/492328409175687179 and verify yourself!"
+      },
+      {
+        "label": "I want to apply as staff",
+        "emoji": "💼",
+        "action": "message",
+        "text": "Thank you for your interest in applying to the Art Commissions staff team!\n## Join the Art Commission team!\nWhile our staff position are currently volunteer-only, **we offer exclusive perks to all members of our team like:**\n - 2-day cooldown in all promotion channels.\n - retirement custom vanity role for long-term contribution\n - exclusive staff events\n\n**__Basic requirements for all positions:__**\n\u2936 Must have a basic understanding of server rules, knowledge of customer service.\n\u2936 Must have DMs open so we could contact you.\n\u2936 You must be able to spot an AI image, NFT, traced/heavily-referenced or even stolen works.\n\nRead more here to know more about the positions that are available: https://discord.com/channels/369798142289510401/1393368618250539078"
+      },
+      {
+        "label": "Others",
+        "emoji": "🌐",
+        "action": "message",
+        "text": "For other inquiries, please feel free to open a ticket or contact a staff member directly."
+      }
+    ]
+  },
+  "menus": {
+    "role-menu": {
+      "text": "To start obtaining roles, you need to apply for them. Follow the provided format and fill in the form and send it to <@501746915218554881>.\n\nYour message will be sent to ModMail for our staff to review. Please wait patiently, as role applications can take up to 48h to be processed. \n[Read more here](https://discord.com/channels/369798142289510401/1393276570650804274)",
+      "buttons": [
+        {
+          "label": "Artist Role",
+          "emoji": "🎨",
+          "action": "message",
+          "text": "Artist role allows you to gain access to artist-exclusive channels, upon obtaining this role, you can start sharing your artwork in https://discord.com/channels/369798142289510401/369833248240566282 or gather feedback at in https://discord.com/channels/369798142289510401/495977557947318272!\n\n```[SFW/ NSFW] I want the Artist role.\nMy website/ social media:```\n**Important:** Please read https://discord.com/channels/369798142289510401/1393276570650804274/1476696038323654801 to know what sites is allowed for applications. We do NOT allow you to apply as a group."
+        },
+        {
+          "label": "Art Seller Role",
+          "emoji": "💰",
+          "action": "message",
+          "text": "__**Prerequisite**__: Artist Role\nArt Seller allows you to gain access to our commission channels where you can start advertising your commissions! To be eligible for this role, you need to apply for Artist role first.\n\n``` [SFW/ NSFW] I want Art Seller role.\n[Link to your Imgur album or Google docs] ```\n**Important**: Please read https://discord.com/channels/369798142289510401/635030026911481856/1490007480955179180 to know what should be included in your document."
+        },
+        {
+          "label": "Art Buyer Role",
+          "emoji": "🛍️",
+          "action": "message",
+          "text": "Art Buyer role unlocks buyer-exclusive channels where you can talk about your recently bought commissions with the others!\n\n``` [SFW/ NSFW] I want Art Buyer role.\n[Link to your Imgur album or Google docs] ```\n**Important**: Please read https://discord.com/channels/369798142289510401/635030026911481856/1490007551373218095 to know what should be included in your document."
+        },
+        {
+          "label": "NSFW role",
+          "emoji": "🔞",
+          "action": "message",
+          "text": "```[NSFW] I want the NSFW role.```\n**Important**: This is purely a VANITY role. Will not grant any permission or perks. Apply if you are comfortable selling/buying 18+ themed artworks."
+        },
+        {
+          "label": "Trusted Art Seller",
+          "emoji": "🌟",
+          "action": "message",
+          "text": "This role allows you to be recognized as a trusted artist of this server, however currently it does not unlock anything and is purely vanity. To be eligible for this role, you need to apply for Art Seller role first.\n\n``` [SFW/ NSFW] I want Trusted Seller role.\n[Link to your Imgur album or Google docs] ```\n**Important**: Please read https://discord.com/channels/369798142289510401/635030026911481856/1490007485157871616 to know what should be included in your document."
+        },
+        {
+          "label": "Trusted Art Buyer",
+          "emoji": "💎",
+          "action": "message",
+          "text": "This role allows you to be recognized as a trusted buyer of this server, however currently it does not unlock anything and is purely vanity. To be eligible for this role, you need to apply for Art Buyer role first.\n\n``` [SFW/ NSFW] I want Trusted Seller role.\n[Link to your Imgur album or Google docs] ```\n**Important**: Please read https://discord.com/channels/369798142289510401/635030026911481856/1490007554649096384 to know what should be included in your document."
+        }
+      ]
+    },
+    "advertising-menu": {
+      "text": "To start advertising in our server, you need the Art Seller role.",
+      "buttons": [
+        {
+          "label": "How do I obtain Art Seller role?",
+          "emoji": "🎭",
+          "action": "menu",
+          "target": "role-menu"
+        }
+      ]
+    },
+    "support-menu": {
+      "text": "You can reach out to staff by messaging <@501746915218554881>. Upon messaging ModMail, you will be prompted to create a ticket with our staff.\n-# You can tell your message has been successfully delivered if a green checkmark(:white_check_mark:) appears below your message.\nIt is important to understand you will be talking to our staff members, not a bot! Please communicate in English and provide all information upfront to reduce wait time.",
+      "buttons": [
+        {
+          "label": "What can I contact Mod Mail for?",
+          "emoji": "❓",
+          "action": "message",
+          "text": "You can contact ModMail for the following:\n> - **[Role applications](https://discord.com/channels/369798142289510401/635030026911481856)**, like Artist or Buyer roles, or **[staff positions](https://discord.com/channels/369798142289510401/1393368618250539078)**,\n> - Questions related to server systems and procedures,\n> - **[Reports](https://discord.com/channels/369798142289510401/1439438661564239882/1442433604125851759)** against users, rule-violating posts or global scam methods,\n> - Appeal a ban or a warning,\n> - Suggest an idea for the server,\n> - Inquiry about a **[server partnership](https://discord.com/channels/369798142289510401/493379685938364416)**,\n> - To receive an event prize,\n> - Request a review & feedback for a promotion post, **[ToS information](https://discord.com/channels/369798142289510401/1191922480961552424)** and the overall portfolio/specific artwork"
+        },
+        {
+          "label": "How long does it take to get a response?",
+          "emoji": "⏳",
+          "action": "message",
+          "text": "Usually it can take up to 24-48 hours (1-2 days) for a staff member to get back to you. You are always welcome to bump/remind about your tickets after these time-frames have passed. However, in extreme cases of backlog or staff unavailability, could take more than 72 hours (3 days), in which case, <@501746915218554881> will be put on a temporary quarantine for a clean up. A proper announcement will be made prior to that."
+        },
+        {
+          "label": "Can I report someone?",
+          "emoji": "🚨",
+          "action": "message",
+          "text": "Yes, you may report someone. Before opening a ticket with ModMail, [please read this report guide.](https://discord.com/channels/369798142289510401/1439438661564239882/1476345393481781447)"
+        }
+      ]
+    },
+    "troubleshoot": {
+      "text": "If you can’t contact ModMail, it is because one of the following:\n\n**1. ModMail can’t contact you back**\n> *Users typically get a \"Your message could not be delivered...\" error message. You can fix it by:*\n> Going to User Settings > Content & Social > Social Permissions Choose Art Commissions server and set your Direct Messages (DM) to open.\n\n**2. ModMail is under quarantine**\n> Sometimes we put ModMail on quarantine to clear out backlogs of pending tickets. You can get the latest news from https://discord.com/channels/369798142289510401/605477697069514772.",
+      "buttons": [
+        {
+          "label": "What if it’s an emergency?",
+          "emoji": "⚠️",
+          "action": "message",
+          "text": "You can direct message one of our available [higher ups](https://discord.com/channels/369798142289510401/1439438661564239882/1476345379204370713) or [moderators](https://discord.com/channels/369798142289510401/1439438661564239882/1476345379204370713). However please make sure to not message the ones that are on Vacation, they will have a yellow coloured username if that is the case!"
+        }
+      ]
+    }
+  }
+}
