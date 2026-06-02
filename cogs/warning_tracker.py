@@ -464,20 +464,12 @@ class WarningTracker(commands.Cog):
                 inline=False
             )
             
-            # Re-upload attachments to preserve them after deleting the original message
-            files = []
             if message.attachments:
                 attachments_list = "\n".join([a.url for a in message.attachments])
                 log_embed.add_field(name="Attachments", value=attachments_list, inline=False)
-                for attachment in message.attachments:
-                    try:
-                        file = await attachment.to_file()
-                        files.append(file)
-                    except Exception as e:
-                        print(f"Failed to retrieve attachment {attachment.filename}: {e}")
                 
             try:
-                log_msg = await log_channel.send(embed=log_embed, files=files)
+                log_msg = await log_channel.send(embed=log_embed)
             except Exception as e:
                 print(f"Error sending log embed: {e}")
 
@@ -485,13 +477,19 @@ class WarningTracker(commands.Cog):
         warn_channel_id = self.log_channel_id if log_msg else (self.notice_channel_id if notice_msg else message.channel.id)
         warn_message_id = log_msg.id if log_msg else (notice_msg.id if notice_msg else 0)
         
+        # Format attachments as plain links (wrapped in <> to prevent previews) and append to reason
+        db_reason = reason
+        if message.attachments:
+            attachments_str = "\n**Attachments:**\n" + "\n".join([f"- <{a.url}>" for a in message.attachments])
+            db_reason += attachments_str
+        
         await database.add_warning(
             user_id=message.author.id,
             channel_id=warn_channel_id,
             message_id=warn_message_id,
-            message_content=reason,
+            message_content=db_reason,
             staff_id=interaction.user.id,
-            reason=reason
+            reason=db_reason
         )
 
         await interaction.followup.send("Post successfully removed, logged, and verbal notice recorded.", ephemeral=True)
