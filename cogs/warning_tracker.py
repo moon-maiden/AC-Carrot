@@ -200,7 +200,7 @@ class WarningsPaginationView(discord.ui.View):
                 embed.description += (
                     f"**#ID : {w['id']}** : ({time_str}) by:{staff_str}\n"
                     f"Reason: {w['reason'] or w['message_content']}\n"
-                    f"> [Source](https://discord.com/channels/{self.guild_id}/{self.notice_channel_id}/{w['message_id']})\n\n"
+                    f"> [Source](https://discord.com/channels/{self.guild_id}/{w['channel_id']}/{w['message_id']})\n\n"
                 )
         
         embed.set_footer(text=f"Page {self.current_page + 1} of {self.max_pages} • Today at {datetime.now(timezone.utc).strftime('%H:%M')}")
@@ -277,7 +277,7 @@ class StaffWarningsPaginationView(discord.ui.View):
                 embed.description += (
                     f"**#ID : {w['id']}** : ({time_str}) for user: <@{w['user_id']}>({w['user_id']})\n"
                     f"Reason: {w['reason'] or w['message_content']}\n"
-                    f"> [Source](https://discord.com/channels/{self.guild_id}/{self.notice_channel_id}/{w['message_id']})\n\n"
+                    f"> [Source](https://discord.com/channels/{self.guild_id}/{w['channel_id']}/{w['message_id']})\n\n"
                 )
         
         embed.set_footer(text=f"Page {self.current_page + 1} of {self.max_pages} • Today at {datetime.now(timezone.utc).strftime('%H:%M')}")
@@ -443,6 +443,7 @@ class WarningTracker(commands.Cog):
             except Exception:
                 pass
 
+        log_msg = None
         if log_channel:
             log_embed = discord.Embed(
                 title="Log: Post Removed",
@@ -468,16 +469,18 @@ class WarningTracker(commands.Cog):
                 log_embed.add_field(name="Attachments", value=attachments_list, inline=False)
                 
             try:
-                await log_channel.send(embed=log_embed)
+                log_msg = await log_channel.send(embed=log_embed)
             except Exception as e:
                 print(f"Error sending log embed: {e}")
 
-        # Add warning to database (notice_msg.id represents message_id)
-        notice_msg_id = notice_msg.id if notice_msg else 0
+        # Add warning to database (prioritize log channel/msg, then staff notice)
+        warn_channel_id = self.log_channel_id if log_msg else (self.notice_channel_id if notice_msg else message.channel.id)
+        warn_message_id = log_msg.id if log_msg else (notice_msg.id if notice_msg else 0)
+        
         await database.add_warning(
             user_id=message.author.id,
-            channel_id=message.channel.id,
-            message_id=notice_msg_id,
+            channel_id=warn_channel_id,
+            message_id=warn_message_id,
             message_content=reason,
             staff_id=interaction.user.id,
             reason=reason
