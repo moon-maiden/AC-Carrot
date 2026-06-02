@@ -464,12 +464,20 @@ class WarningTracker(commands.Cog):
                 inline=False
             )
             
+            # Re-upload attachments to preserve them after deleting the original message
+            files = []
             if message.attachments:
                 attachments_list = "\n".join([a.url for a in message.attachments])
                 log_embed.add_field(name="Attachments", value=attachments_list, inline=False)
+                for attachment in message.attachments:
+                    try:
+                        file = await attachment.to_file()
+                        files.append(file)
+                    except Exception as e:
+                        print(f"Failed to retrieve attachment {attachment.filename}: {e}")
                 
             try:
-                log_msg = await log_channel.send(embed=log_embed)
+                log_msg = await log_channel.send(embed=log_embed, files=files)
             except Exception as e:
                 print(f"Error sending log embed: {e}")
 
