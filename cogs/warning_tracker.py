@@ -401,9 +401,13 @@ class WarningTracker(commands.Cog):
 
     async def cog_check(self, ctx):
         """Restricts all commands in this cog to only work in the staff command channel by authorized staff."""
-        # Developer bypass for user 255174440005009408 (allows running anywhere regardless of perms)
+        # Developer bypass for user 255174440005009408 (allows running anywhere including DMs)
         if ctx.author.id == 255174440005009408:
             return True
+
+        # Explicitly block commands in DMs for everyone else
+        if ctx.guild is None:
+            return False
 
         # 1. Restrict to staff commands channel
         if self.commands_channel_id != 0 and ctx.channel.id != self.commands_channel_id:
