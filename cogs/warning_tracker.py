@@ -399,6 +399,36 @@ class WarningTracker(commands.Cog):
     def cog_unload(self):
         self.bot.tree.remove_command(self.ctx_menu.name, type=self.ctx_menu.type)
 
+    async def cog_check(self, ctx):
+        """Restricts all commands in this cog to only work in the staff command channel by authorized staff."""
+        # Developer bypass for user 255174440005009408 (allows running anywhere regardless of perms)
+        if ctx.author.id == 255174440005009408:
+            return True
+
+        # 1. Restrict to staff commands channel
+        if self.commands_channel_id != 0 and ctx.channel.id != self.commands_channel_id:
+            try:
+                await ctx.send(f"Error: This command can only be used in the staff commands channel (<#{self.commands_channel_id}>).", delete_after=5)
+                if ctx.guild:
+                    await ctx.message.delete()
+            except Exception:
+                pass
+            return False
+
+        # 2. Restrict to staff role holders or server admins
+        if ctx.guild:
+            has_role = any(role.id in self.staff_role_ids for role in ctx.author.roles)
+            is_admin = ctx.author.guild_permissions.administrator
+            if not (has_role or is_admin):
+                try:
+                    await ctx.send("Error: You do not have the required staff role to use this command.", delete_after=5)
+                    await ctx.message.delete()
+                except Exception:
+                    pass
+                return False
+
+        return True
+
     async def remove_post_callback(self, interaction: discord.Interaction, message: discord.Message):
         await interaction.response.defer(ephemeral=True)
         # Check role
