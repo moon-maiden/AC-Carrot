@@ -377,16 +377,16 @@ class HelpPaginationView(discord.ui.View):
 class WarningTracker(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.notice_channel_id = int(os.getenv("STAFF_NOTICE_CHANNEL_ID", 748949267397476392))
-        self.commands_channel_id = int(os.getenv("STAFF_COMMANDS_CHANNEL_ID", 0))
-        self.log_channel_id = int(os.getenv("STAFF_LOG_CHANNEL_ID", 0))
+        self.notice_channel_id = int(os.getenv("STAFF_NOTICE_CHANNEL_ID") or 748949267397476392)
+        self.commands_channel_id = int(os.getenv("STAFF_COMMANDS_CHANNEL_ID") or 0)
+        self.log_channel_id = int(os.getenv("STAFF_LOG_CHANNEL_ID") or 0)
         
         # Support multiple staff roles via comma-separated list
-        role_ids_str = os.getenv("STAFF_ROLE_IDS", "")
+        role_ids_str = os.getenv("STAFF_ROLE_IDS") or ""
         if role_ids_str:
             self.staff_role_ids = [int(r.strip()) for r in role_ids_str.split(",") if r.strip().isdigit()]
         else:
-            single_id = os.getenv("STAFF_ROLE_ID", "0")
+            single_id = os.getenv("STAFF_ROLE_ID") or "0"
             self.staff_role_ids = [int(single_id)] if single_id.isdigit() else []
 
         # Add Context Menu

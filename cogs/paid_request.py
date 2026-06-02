@@ -97,7 +97,7 @@ class PaidRequestModal(discord.ui.Modal):
             )
 
         # Fetch member from the review channel guild to support DMs
-        review_channel_id = int(os.getenv("PAID_REQUEST_REVIEW_CHANNEL_ID", 0))
+        review_channel_id = int(os.getenv("PAID_REQUEST_REVIEW_CHANNEL_ID") or 0)
         review_channel = interaction.client.get_channel(review_channel_id)
         guild = review_channel.guild if review_channel else None
         
@@ -157,7 +157,7 @@ class PaidRequestModal(discord.ui.Modal):
                 pass
 
         # Send to Review Channel
-        review_channel_id = int(os.getenv("PAID_REQUEST_REVIEW_CHANNEL_ID", 0))
+        review_channel_id = int(os.getenv("PAID_REQUEST_REVIEW_CHANNEL_ID") or 0)
         review_channel = interaction.client.get_channel(review_channel_id)
         if review_channel:
             view = discord.ui.View(timeout=None)
@@ -214,7 +214,7 @@ class RejectReasonModal(discord.ui.Modal, title="Reason for Rejection"):
         submitter_str = f"{submitter.name} [{self.user_id}]" if submitter else f"Unknown [{self.user_id}]"
 
         # Log it
-        log_channel_id = int(os.getenv("APPROVAL_LOG_CHANNEL_ID", 0))
+        log_channel_id = int(os.getenv("APPROVAL_LOG_CHANNEL_ID") or 0)
         log_channel = interaction.client.get_channel(log_channel_id)
         if log_channel and req:
             log_desc = (
@@ -335,7 +335,7 @@ class PaidRequest(commands.Cog):
         btn = discord.ui.Button(label="Create", style=discord.ButtonStyle.primary, custom_id="create_paid_request_btn")
         view.add_item(btn)
         
-        submit_channel_id = int(os.getenv("SUBMIT_PAID_REQUEST_CHANNEL_ID", 0))
+        submit_channel_id = int(os.getenv("SUBMIT_PAID_REQUEST_CHANNEL_ID") or 0)
         submit_channel = self.bot.get_channel(submit_channel_id)
         
         if submit_channel:
@@ -422,7 +422,7 @@ class PaidRequest(commands.Cog):
             await interaction.followup.send("Request not found.", ephemeral=True)
             return
 
-        approved_channel_id = int(os.getenv("PAID_REQUEST_APPROVED_CHANNEL_ID", 0))
+        approved_channel_id = int(os.getenv("PAID_REQUEST_APPROVED_CHANNEL_ID") or 0)
         approved_channel = self.bot.get_channel(approved_channel_id)
         
         # Get the member from guild to fetch their avatar and join date
@@ -469,7 +469,7 @@ class PaidRequest(commands.Cog):
         await database.update_paid_request_status(req_id, 'approved', approved_msg.id if approved_msg else None)
 
         # Log it
-        log_channel_id = int(os.getenv("APPROVAL_LOG_CHANNEL_ID", 0))
+        log_channel_id = int(os.getenv("APPROVAL_LOG_CHANNEL_ID") or 0)
         log_channel = self.bot.get_channel(log_channel_id)
         if log_channel:
             submitter_name = member.name if member else "Unknown"
@@ -532,7 +532,7 @@ class PaidRequest(commands.Cog):
             await interaction.response.send_message("Request not found.", ephemeral=True)
             return
 
-        approved_channel_id = int(os.getenv("PAID_REQUEST_APPROVED_CHANNEL_ID", 0))
+        approved_channel_id = int(os.getenv("PAID_REQUEST_APPROVED_CHANNEL_ID") or 0)
         approved_channel = self.bot.get_channel(approved_channel_id)
         
         if approved_channel and req['approved_msg_id']:
@@ -576,7 +576,7 @@ class PaidRequest(commands.Cog):
             return
 
         # Fetch and delete review card
-        review_channel_id = int(os.getenv("PAID_REQUEST_REVIEW_CHANNEL_ID", 0))
+        review_channel_id = int(os.getenv("PAID_REQUEST_REVIEW_CHANNEL_ID") or 0)
         review_channel = self.bot.get_channel(review_channel_id)
         if review_channel and req['staff_review_msg_id']:
             try:
@@ -610,7 +610,7 @@ class PaidRequest(commands.Cog):
             pass
 
         # Log it to approval log
-        log_channel_id = int(os.getenv("APPROVAL_LOG_CHANNEL_ID", 0))
+        log_channel_id = int(os.getenv("APPROVAL_LOG_CHANNEL_ID") or 0)
         log_channel = self.bot.get_channel(log_channel_id)
         if log_channel:
             submitter_str = f"{interaction.user.name} [{interaction.user.id}]"
