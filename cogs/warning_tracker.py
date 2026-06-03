@@ -493,7 +493,18 @@ class WarningTracker(commands.Cog):
             log_embed.add_field(name="Post Deleted At", value=f"<t:{del_ts}:f> (<t:{del_ts}:R>)", inline=True)
             log_embed.add_field(name="Rejection Reason", value=reason, inline=False)
             
-            content_snippet = original_content if original_content else "*No text content*"
+            # Extract text content (checking snapshots for forwarded messages)
+            content_snippet = original_content
+            if not content_snippet and hasattr(message, "message_snapshots") and message.message_snapshots:
+                snapshot_contents = []
+                for i, snapshot in enumerate(message.message_snapshots, 1):
+                    snap_txt = snapshot.content or "*No text content*"
+                    snapshot_contents.append(f"[Forwarded Message #{i}]: {snap_txt}")
+                content_snippet = "\n".join(snapshot_contents)
+            
+            if not content_snippet:
+                content_snippet = "*No text content*"
+
             if len(content_snippet) > 800:
                 content_snippet = content_snippet[:800] + "..."
             
@@ -503,8 +514,15 @@ class WarningTracker(commands.Cog):
                 inline=False
             )
             
-            if message.attachments:
-                attachments_list = "\n".join([f"[{a.filename}]({a.url})" for a in message.attachments])
+            # Collect attachments including forwarded ones
+            all_attachments = list(message.attachments)
+            if hasattr(message, "message_snapshots") and message.message_snapshots:
+                for snapshot in message.message_snapshots:
+                    if hasattr(snapshot, "attachments") and snapshot.attachments:
+                        all_attachments.extend(snapshot.attachments)
+
+            if all_attachments:
+                attachments_list = "\n".join([f"[{a.filename}]({a.url})" for a in all_attachments])
                 log_embed.add_field(name="Attachments", value=attachments_list, inline=False)
                 
             try:
@@ -518,8 +536,15 @@ class WarningTracker(commands.Cog):
         
         # Format attachments as clean markdown links and append to reason
         db_reason = reason
-        if message.attachments:
-            attachments_str = "\n**Attachments:**\n" + "\n".join([f"- [{a.filename}]({a.url})" for a in message.attachments])
+        # Re-resolve all_attachments for database as well
+        all_attachments = list(message.attachments)
+        if hasattr(message, "message_snapshots") and message.message_snapshots:
+            for snapshot in message.message_snapshots:
+                if hasattr(snapshot, "attachments") and snapshot.attachments:
+                    all_attachments.extend(snapshot.attachments)
+
+        if all_attachments:
+            attachments_str = "\n**Attachments:**\n" + "\n".join([f"- [{a.filename}]({a.url})" for a in all_attachments])
             db_reason += attachments_str
         
         await database.add_warning(
