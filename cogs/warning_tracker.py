@@ -542,9 +542,9 @@ class WarningTracker(commands.Cog):
             except Exception as e:
                 print(f"Error sending log embed: {e}")
 
-        # Add warning to database (prioritize log channel/msg, then staff notice)
-        warn_channel_id = self.log_channel_id if log_msg else (self.notice_channel_id if notice_msg else message.channel.id)
-        warn_message_id = log_msg.id if log_msg else (notice_msg.id if notice_msg else 0)
+        # Add warning to database (reference the staff notice message so delverbal works)
+        warn_channel_id = self.notice_channel_id if notice_msg else message.channel.id
+        warn_message_id = notice_msg.id if notice_msg else 0
         
         # Format attachments as clean markdown links and append to reason
         db_reason = reason
