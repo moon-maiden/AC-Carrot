@@ -440,6 +440,22 @@ class MessageBuilder(commands.Cog):
     def cog_unload(self):
         self.bot.tree.remove_command(self.ctx_menu.name, type=self.ctx_menu.type)
 
+    @app_commands.command(name="send_as", description="Send a message as Carrot")
+    @app_commands.describe(message="The message to send")
+    async def send_as(self, interaction: discord.Interaction, message: str):
+        # Allow administrators OR the specific superuser
+        is_admin = interaction.user.guild_permissions.administrator if interaction.guild else False
+        if not (is_admin or interaction.user.id == 255174440005009408):
+            await interaction.response.send_message("❌ You do not have permission to use this command.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        try:
+            await interaction.channel.send(message)
+            await interaction.followup.send("Message sent successfully.", ephemeral=True)
+        except Exception as e:
+            await interaction.followup.send(f"Failed to send message: {e}", ephemeral=True)
+
     @app_commands.command(name="message_builder", description="Open interactive Webhook message builder")
     async def message_builder(self, interaction: discord.Interaction):
         # Allow administrators OR the specific superuser
