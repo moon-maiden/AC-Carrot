@@ -76,13 +76,19 @@ class PaidRequestModal(discord.ui.Modal):
         use_case_val = sanitize_input(self.use_case.value, 50)
         content_val = sanitize_input(self.content.value, 1000)
         
-        
         # Validate budget currency
+        import re
+        disallowed_pattern = re.compile(
+            r'\b(robux|robuck|robucks|crypto|cryptocurrency|cryptocurrencies|btc|eth|sol|ltc|usdt|usdc|bitcoin|ethereum|solana|litecoin|doge|dogecoin)\b',
+            re.IGNORECASE
+        )
+        
         budget_upper = budget_val.upper()
-        currencies = {"USD", "AUD", "CAD", "NZD", "EUR", "GBP", "SGD", "MYR", "PHP", "IDR", "JPY", "HKD", "TWD", "KRW", "INR"}
-        if not any(code in budget_upper for code in currencies):
+        
+        # 1. Check for disallowed currency
+        if disallowed_pattern.search(budget_val):
             view = discord.ui.View(timeout=180)
-            fix_btn = discord.ui.Button(label="Fix Budget", style=discord.ButtonStyle.primary)
+            fix_btn = discord.ui.Button(label="Fix Currency", style=discord.ButtonStyle.primary)
             
             async def fix_callback(btn_interaction: discord.Interaction):
                 await btn_interaction.response.send_modal(PaidRequestModal(
@@ -100,11 +106,43 @@ class PaidRequestModal(discord.ui.Modal):
             view.add_item(fix_btn)
             
             await interaction.followup.send(
-                "⚠️ **Invalid Budget Format**\nYou must specify the currency abbreviation (e.g. **USD, AUD, CAD, NZD, EUR**) in the budget field so staff know which currency it is.\n\nClick the button below to correct your input without losing what you typed.",
+                "⚠️ **Disallowed Currency**\nRobux, Robucks, crypto, or other equivalent currencies are not allowed.\n\nClick the button below to correct your input without losing what you typed.",
                 view=view,
                 ephemeral=True
             )
             return
+            
+        # 2. Check if detects $ and a number/digit
+        has_dollar = "$" in budget_val
+        has_digit = any(c.isdigit() for c in budget_val)
+        
+        if has_dollar and has_digit:
+            currencies = {"USD", "AUD", "CAD", "NZD", "EUR", "GBP", "SGD", "MYR", "PHP", "IDR", "JPY", "HKD", "TWD", "KRW", "INR"}
+            if not any(code in budget_upper for code in currencies):
+                view = discord.ui.View(timeout=180)
+                fix_btn = discord.ui.Button(label="Specify Currency", style=discord.ButtonStyle.primary)
+                
+                async def fix_callback(btn_interaction: discord.Interaction):
+                    await btn_interaction.response.send_modal(PaidRequestModal(
+                        request_id=self.request_id,
+                        budget_val=self.budget.value,
+                        sfw_nsfw_val=self.sfw_nsfw.value,
+                        payment_method_val=self.payment_method.value,
+                        use_case_val=self.use_case.value,
+                        content_val=self.content.value,
+                        review_msg_id=self.review_msg_id,
+                        dm_msg=self.dm_msg
+                    ))
+                
+                fix_btn.callback = fix_callback
+                view.add_item(fix_btn)
+                
+                await interaction.followup.send(
+                    "⚠️ **Specify Dollar Currency**\nYou used the '$' symbol with a number, but did not specify which dollar currency it is (e.g. **USD, AUD, CAD, NZD**).\n\nClick the button below to specify the currency.",
+                    view=view,
+                    ephemeral=True
+                )
+                return
             
         if is_edit:
             req_id = self.request_id
