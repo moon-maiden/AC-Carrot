@@ -15,7 +15,7 @@ def sanitize_input(text: str, max_len: int = 1000) -> str:
 class PaidRequestModal(discord.ui.Modal):
     def __init__(self, request_id: int = None, budget_val: str = None, sfw_nsfw_val: str = None,
                  payment_method_val: str = None, use_case_val: str = None, content_val: str = None,
-                 review_msg_id: int = None, dm_msg: discord.Message = None):
+                 review_msg_id: int = None, dm_msg: discord.Message = None, budget_error: str = None):
         title = "Edit Request" if request_id else "Create Request"
         super().__init__(title=title)
         
@@ -23,8 +23,12 @@ class PaidRequestModal(discord.ui.Modal):
         self.review_msg_id = review_msg_id
         self.dm_msg = dm_msg
         
+        budget_label = "Budget (AUD/USD/CAD/etc.)"
+        if budget_error:
+            budget_label = f"Budget ({budget_error})"
+            
         self.budget = discord.ui.TextInput(
-            label="Budget (AUD/USD/CAD/etc.)",
+            label=budget_label,
             placeholder="Crypto/Robux is NOT ALLOWED",
             default=budget_val,
             required=True,
@@ -99,7 +103,8 @@ class PaidRequestModal(discord.ui.Modal):
                     use_case_val=self.use_case.value,
                     content_val=self.content.value,
                     review_msg_id=self.review_msg_id,
-                    dm_msg=self.dm_msg
+                    dm_msg=self.dm_msg,
+                    budget_error="NO ROBUX/CRYPTO ALLOWED"
                 ))
             
             fix_btn.callback = fix_callback
@@ -131,7 +136,8 @@ class PaidRequestModal(discord.ui.Modal):
                         use_case_val=self.use_case.value,
                         content_val=self.content.value,
                         review_msg_id=self.review_msg_id,
-                        dm_msg=self.dm_msg
+                        dm_msg=self.dm_msg,
+                        budget_error="SPECIFY USD/AUD/CAD/etc."
                     ))
                 
                 fix_btn.callback = fix_callback
