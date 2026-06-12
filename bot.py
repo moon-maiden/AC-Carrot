@@ -1,3 +1,15 @@
+import socket
+import aiohttp
+
+# Force IPv4 globally in aiohttp TCPConnectors to workaround Railway's IPv6 routing/gateway timeouts.
+original_init = aiohttp.TCPConnector.__init__
+
+def patched_init(self, *args, **kwargs):
+    kwargs['family'] = socket.AF_INET
+    original_init(self, *args, **kwargs)
+
+aiohttp.TCPConnector.__init__ = patched_init
+
 import discord
 from discord.ext import commands
 import os
