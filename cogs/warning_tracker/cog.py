@@ -99,41 +99,7 @@ class WarningTracker(commands.Cog):
         notice_channel_id = config.get("staff_notice_channel_id") or 0
         log_channel_id = config.get("staff_log_channel_id") or 0
         
-        # Delete message
-        try:
-            await message.delete()
-        except discord.HTTPException as e:
-            err_msg = f"Failed to delete the message: {e}"
-            if e.code == 50013:
-                err_msg += "\n\n**Note:** This means the *bot itself* is missing the `Manage Messages` permission in this channel. Even as a superuser, the bot still needs Discord permissions to delete other users' messages!"
-            await interaction.followup.send(err_msg, ephemeral=True)
-            return
-
-        # Post warning in staff-notice
-        notice_channel = self.bot.get_channel(notice_channel_id)
-        if not notice_channel:
-            try:
-                notice_channel = await asyncio.wait_for(self.bot.fetch_channel(notice_channel_id), timeout=5.0)
-            except Exception:
-                pass
-
-        notice_msg = None
-        if notice_channel:
-            try:
-                allowed_mentions = discord.AllowedMentions(everyone=False, roles=False, users=True)
-                notice_content = f"{message.author.mention} {reason}"
-                if len(notice_content) > 2000:
-                    notice_content = notice_content[:1997] + "..."
-                notice_msg = await notice_channel.send(content=notice_content, allowed_mentions=allowed_mentions)
-            except Exception as e:
-                print(f"Error sending notice message: {e}")
-
-        # Log it in staff log channel
-        # Add warning to database (reference the staff notice message so delverbal works)
-        warn_channel_id = notice_channel_id if notice_msg else message.channel.id
-        warn_message_id = notice_msg.id if notice_msg else 0
-        
-        # Save attachments as JSON in the database rather than appending to reason text
+        # 1. Save attachments as JSON in the database BEFORE deleting the message (so Discord CDN links are valid)
         all_attachments = list(message.attachments)
         if hasattr(message, "message_snapshots") and message.message_snapshots:
             for snapshot in message.message_snapshots:
@@ -158,6 +124,41 @@ class WarningTracker(commands.Cog):
                 print(f"Failed to download/save attachment {a.filename}: {e}")
                 
         attachments_data = json.dumps(saved_attachments) if saved_attachments else None
+
+        # 2. Delete message
+        try:
+            await message.delete()
+        except discord.HTTPException as e:
+            err_msg = f"Failed to delete the message: {e}"
+            if e.code == 50013:
+                err_msg += "\n\n**Note:** This means the *bot itself* is missing the `Manage Messages` permission in this channel. Even as a superuser, the bot still needs Discord permissions to delete other users' messages!"
+            await interaction.followup.send(err_msg, ephemeral=True)
+            return
+
+        # 3. Post warning in staff-notice
+        notice_channel = self.bot.get_channel(notice_channel_id)
+        if not notice_channel:
+            try:
+                notice_channel = await asyncio.wait_for(self.bot.fetch_channel(notice_channel_id), timeout=5.0)
+            except Exception:
+                pass
+
+        notice_msg = None
+        if notice_channel:
+            try:
+                allowed_mentions = discord.AllowedMentions(everyone=False, roles=False, users=True)
+                notice_content = f"{message.author.mention} {reason}"
+                if len(notice_content) > 2000:
+                    notice_content = notice_content[:1997] + "..."
+                notice_msg = await notice_channel.send(content=notice_content, allowed_mentions=allowed_mentions)
+            except Exception as e:
+                print(f"Error sending notice message: {e}")
+
+        # Log it in staff log channel
+        # Add warning to database (reference the staff notice message so delverbal works)
+        warn_channel_id = notice_channel_id if notice_msg else message.channel.id
+        warn_message_id = notice_msg.id if notice_msg else 0
+
         
         warn_id = await database.add_warning(
             user_id=message.author.id,
@@ -229,7 +230,7 @@ class WarningTracker(commands.Cog):
                 
             dashboard_url = os.getenv("DASHBOARD_URL", "http://localhost:3000")
             log_embed.add_field(
-                name="Web Log",
+                name="\u200b",
                 value=f"[log](https://{dashboard_url}/guilds/{message.guild.id if message.guild else 0}/logs/warnings/{warn_id})",
                 inline=False
             )
@@ -240,7 +241,7 @@ class WarningTracker(commands.Cog):
                 await interaction.followup.send(f"Warning: Failed to send log embed: {e}", ephemeral=True)
                 print(f"Error sending log embed: {e}")
 
-        await interaction.followup.send("Post successfully removed, logged, and verbal notice recorded.", ephemeral=True)
+        await interaction.followup.send("Verbal warning successfully logged.", ephemeral=True)
 
         # DM the user if not a bot
         if not message.author.bot:
@@ -284,7 +285,7 @@ class WarningTracker(commands.Cog):
                 
                 jump_url = notice_msg.jump_url if notice_msg else "https://discord.com"
                 desc += f"\n**[Link to verbal warn]({jump_url})**\n\n"
-                desc += "-# Contact <@501746915218554881> for appeal or concerns."
+                desc += "-# In case of questions, or if you believe you've been warned by mistake; please contact <@501746915218554881> for appeal or concerns."
                 
                 embed.description = desc
                 embed.set_footer(text="Verbal warnings expire every 3 months.")
