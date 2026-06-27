@@ -101,6 +101,10 @@ async def init_db():
         except aiosqlite.OperationalError:
             pass # Column already exists
 
+        # Data patch: assign orphaned records to Art Commissions (1437362160211726452)
+        await db.execute('UPDATE warnings SET guild_id = 1437362160211726452 WHERE guild_id IS NULL')
+        await db.execute('UPDATE paid_requests SET guild_id = 1437362160211726452 WHERE guild_id IS NULL')
+        await db.commit()
 
         
         await db.execute('''
