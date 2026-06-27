@@ -84,16 +84,10 @@ class RemovalReasonSelect(discord.ui.Select):
                 formatted_list = "\n".join([f"- {reasons_map[v]}" for v in self.values if v in reasons_map])
                 reason = f"Your post has been removed from {chan_mention} due to:\n{formatted_list}"
 
-            guild_name = self.target_message.guild.name if self.target_message.guild else "this server"
-            quoted_reason = "\n".join([f"> {line}" for line in reason.split("\n")])
             preview_desc = (
                 f"Are you sure you want to remove the post by {self.target_message.author.mention}?\n\n"
-                f"**Preview of DM warning user will receive:**\n"
-                f"```markdown\n"
-                f"### This is your [1st/2nd/3rd] verbal warning\n\n"
-                f"You have received a __verbal warning__ in {guild_name} for:\n"
-                f"{quoted_reason}\n"
-                f"```"
+                f"**Preview of notice message to be sent:**\n"
+                f"{self.target_message.author.mention} {reason}"
             )
             confirm_embed = discord.Embed(
                 title="Confirm Post Removal",
@@ -133,16 +127,10 @@ class CustomRemovalReasonModal(discord.ui.Modal, title="Reason for removal"):
         else:
             reason = f"Your post has been removed from {chan_mention} due to {custom_reason_sanitized}."
 
-        guild_name = self.target_message.guild.name if self.target_message.guild else "this server"
-        quoted_reason = "\n".join([f"> {line}" for line in reason.split("\n")])
         preview_desc = (
             f"Are you sure you want to remove the post by {self.target_message.author.mention}?\n\n"
-            f"**Preview of DM warning user will receive:**\n"
-            f"```markdown\n"
-            f"### This is your [1st/2nd/3rd] verbal warning\n\n"
-            f"You have received a __verbal warning__ in {guild_name} for:\n"
-            f"{quoted_reason}\n"
-            f"```"
+            f"**Preview of notice message to be sent:**\n"
+            f"{self.target_message.author.mention} {reason}"
         )
         confirm_embed = discord.Embed(
             title="Confirm Post Removal",
