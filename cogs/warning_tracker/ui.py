@@ -59,7 +59,7 @@ class RemovalReasonSelect(discord.ui.Select):
         super().__init__(placeholder="Select reason(s) for removal...", options=options[:25], min_values=1, max_values=len(options[:25]))
 
     async def callback(self, interaction: discord.Interaction):
-        config = await database.get_guild_config(interaction.guild_id if interaction.guild else 0)
+        config = await database.get_guild_config(interaction.guild_id or 0)
         staff_role_ids = [config.get("team_leader_role_id"), config.get("moderator_role_id"), config.get("trial_moderator_role_id")]
         
         if interaction.user.id != 255174440005009408 and not any(role.id in staff_role_ids for role in interaction.user.roles):

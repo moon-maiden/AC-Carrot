@@ -76,7 +76,7 @@ class WarningTracker(commands.Cog):
 
     async def remove_post_callback(self, interaction: discord.Interaction, message: discord.Message):
         await interaction.response.defer(ephemeral=True)
-        config = await database.get_guild_config(interaction.guild_id if interaction.guild else 0)
+        config = await database.get_guild_config(interaction.guild_id or 0)
         staff_role_ids = [config.get("team_leader_role_id"), config.get("moderator_role_id"), config.get("trial_moderator_role_id")]
         
         # Check role
@@ -95,7 +95,7 @@ class WarningTracker(commands.Cog):
         view.message = msg
 
     async def execute_removal(self, interaction: discord.Interaction, message: discord.Message, reason: str, original_content: str):
-        config = await database.get_guild_config(interaction.guild_id if interaction.guild else 0)
+        config = await database.get_guild_config(interaction.guild_id or 0)
         notice_channel_id = config.get("staff_notice_channel_id") or 0
         log_channel_id = config.get("staff_log_channel_id") or 0
         
@@ -822,7 +822,7 @@ class WarningTracker(commands.Cog):
         app_commands.Choice(name="Remove", value="remove"),
     ])
     async def manage_verbal(self, interaction: discord.Interaction, action: str, reason: str = None):
-        config = await database.get_guild_config(interaction.guild_id if interaction.guild else 0)
+        config = await database.get_guild_config(interaction.guild_id or 0)
         team_leader_role_id = config.get("team_leader_role_id") or 0
         
         if interaction.user.id != 255174440005009408 and not any(role.id == team_leader_role_id for role in interaction.user.roles):

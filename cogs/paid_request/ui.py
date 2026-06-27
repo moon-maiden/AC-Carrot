@@ -65,7 +65,7 @@ class PaidRequestModal(discord.ui.Modal):
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        config = await database.get_guild_config(interaction.guild_id if interaction.guild else 0)
+        config = await database.get_guild_config(interaction.guild_id or 0)
         
         is_edit = self.request_id is not None
         budget_val = sanitize_input(self.budget.value, 100)
@@ -343,7 +343,7 @@ class RejectReasonModal(discord.ui.Modal, title="Reason for Rejection"):
         submitter_str = f"{submitter.name} [{self.user_id}]" if submitter else f"Unknown [{self.user_id}]"
 
         # Log it
-        config = await database.get_guild_config(interaction.guild_id if interaction.guild else 0)
+        config = await database.get_guild_config(interaction.guild_id or 0)
         log_channel_id = config.get("approval_log_channel_id") or 0
         log_channel = interaction.client.get_channel(log_channel_id)
         if log_channel and req:

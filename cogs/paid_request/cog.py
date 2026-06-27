@@ -381,7 +381,7 @@ class PaidRequest(commands.Cog):
             await interaction.followup.send("Request not found.", ephemeral=True)
             return
 
-        config = await database.get_guild_config(interaction.guild_id if interaction.guild else 0)
+        config = await database.get_guild_config(interaction.guild_id or 0)
         approved_channel_id = config.get("approved_channel_id") or 0
         approved_channel = self.bot.get_channel(approved_channel_id)
         
@@ -486,7 +486,7 @@ class PaidRequest(commands.Cog):
             await interaction.response.send_message("Request not found.", ephemeral=True)
             return
 
-        config = await database.get_guild_config(interaction.guild_id if interaction.guild else 0)
+        config = await database.get_guild_config(interaction.guild_id or 0)
         approved_channel_id = config.get("approved_channel_id") or 0
         approved_channel = self.bot.get_channel(approved_channel_id)
         if not approved_channel:
@@ -546,7 +546,7 @@ class PaidRequest(commands.Cog):
             await interaction.followup.send("Request not found.", ephemeral=True)
             return
 
-        config = await database.get_guild_config(interaction.guild_id if interaction.guild else 0)
+        config = await database.get_guild_config(interaction.guild_id or 0)
         review_channel_id = config.get("review_channel_id") or 0
         review_channel = self.bot.get_channel(review_channel_id)
         if review_channel and req['staff_review_msg_id']:
