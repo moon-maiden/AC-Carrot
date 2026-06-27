@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { ShieldAlert, Search, Trash2, RefreshCw, Clock, MessageSquare, ExternalLink } from "lucide-react";
+import { useEffect, useState, useMemo } from "react";
+import { ShieldAlert, Search, Trash2, RefreshCw, Clock, MessageSquare, ExternalLink, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Filter } from "lucide-react";
 import { useGuild } from "../../../context/GuildContext";
 
 type Warning = {
@@ -27,6 +27,12 @@ export default function WarningsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const { selectedGuildId } = useGuild();
 
+  // Pagination & Sorting State
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [sortConfig, setSortConfig] = useState<{ key: keyof Warning; direction: 'asc' | 'desc' }>({ key: 'id', direction: 'desc' });
+  const [staffFilter, setStaffFilter] = useState<string>("All");
+
   const fetchWarnings = () => {
     if (!selectedGuildId || selectedGuildId === "0") return;
     setLoading(true);
@@ -49,15 +55,60 @@ export default function WarningsPage() {
     }
   }, [selectedGuildId]);
 
-  const filteredWarnings = warnings.filter((w) => {
-    const query = searchQuery.toLowerCase();
-    return (
-      (w.user_name || "").toLowerCase().includes(query) ||
-      (w.user_id || "").toString().includes(query) ||
-      (w.reason || "").toLowerCase().includes(query) ||
-      (w.staff_name || "").toLowerCase().includes(query)
-    );
-  });
+  const processedWarnings = useMemo(() => {
+    // 1. Filter
+    let filtered = warnings.filter((w) => {
+      const query = searchQuery.toLowerCase();
+      const matchesSearch = (w.user_name || "").toLowerCase().includes(query) ||
+        (w.user_id || "").toString().includes(query) ||
+        (w.reason || "").toLowerCase().includes(query) ||
+        (w.staff_name || "").toLowerCase().includes(query);
+      
+      const matchesStaff = staffFilter === "All" || w.staff_name === staffFilter;
+      return matchesSearch && matchesStaff;
+    });
+
+    // 2. Sort
+    filtered.sort((a, b) => {
+      let aValue = a[sortConfig.key];
+      let bValue = b[sortConfig.key];
+      
+      if (aValue === null) aValue = "";
+      if (bValue === null) bValue = "";
+      
+      if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
+      if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
+      return 0;
+    });
+
+    return filtered;
+  }, [warnings, searchQuery, staffFilter, sortConfig]);
+
+  // Pagination boundaries
+  const totalPages = Math.ceil(processedWarnings.length / itemsPerPage) || 1;
+  const currentWarnings = processedWarnings.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, staffFilter, itemsPerPage]);
+
+  const uniqueStaff = Array.from(new Set(warnings.map(w => w.staff_name))).sort();
+
+  const handleSort = (key: keyof Warning) => {
+    setSortConfig(prev => ({
+      key,
+      direction: prev.key === key && prev.direction === 'desc' ? 'asc' : 'desc'
+    }));
+  };
+
+  const SortIcon = ({ columnKey }: { columnKey: keyof Warning }) => {
+    if (sortConfig.key !== columnKey) return <div className="w-4 h-4 opacity-0 group-hover:opacity-30 transition-opacity"><ChevronDown className="w-4 h-4" /></div>;
+    return sortConfig.direction === 'asc' ? <ChevronUp className="w-4 h-4 text-teal-400" /> : <ChevronDown className="w-4 h-4 text-teal-400" />;
+  };
 
   return (
     <div className="space-y-6">
@@ -92,16 +143,56 @@ export default function WarningsPage() {
         </div>
       </div>
 
+      <div className="flex flex-col sm:flex-row justify-between items-center gap-4 bg-surface-dark/50 p-3 rounded-lg border border-teal-900/30">
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <Filter className="w-4 h-4 text-teal-500" />
+          <span className="text-sm text-gray-400">Staff:</span>
+          <select 
+            value={staffFilter} 
+            onChange={(e) => setStaffFilter(e.target.value)}
+            className="bg-surface-dark border border-teal-900/40 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-teal-500 w-full sm:w-auto min-w-[120px]"
+          >
+            <option value="All">All Staff</option>
+            {uniqueStaff.map(staff => (
+              <option key={staff} value={staff}>{staff}</option>
+            ))}
+          </select>
+        </div>
+        
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <span className="text-sm text-gray-400">Show:</span>
+          <select 
+            value={itemsPerPage} 
+            onChange={(e) => setItemsPerPage(Number(e.target.value))}
+            className="bg-surface-dark border border-teal-900/40 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-teal-500"
+          >
+            <option value={10}>10</option>
+            <option value={25}>25</option>
+            <option value={50}>50</option>
+            <option value={100}>100</option>
+          </select>
+          <span className="text-sm text-gray-400">entries</span>
+        </div>
+      </div>
+
       <div className="glass-panel rounded-xl overflow-hidden shadow-2xl">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead>
               <tr className="bg-surface-dark/80 border-b border-teal-900/30 text-teal-400/80 font-medium">
-                <th className="px-6 py-4">ID</th>
-                <th className="px-6 py-4">User</th>
+                <th className="px-6 py-4 cursor-pointer hover:bg-teal-900/20 group select-none transition-colors" onClick={() => handleSort('id')}>
+                  <div className="flex items-center gap-1">ID <SortIcon columnKey="id" /></div>
+                </th>
+                <th className="px-6 py-4 cursor-pointer hover:bg-teal-900/20 group select-none transition-colors" onClick={() => handleSort('user_name')}>
+                  <div className="flex items-center gap-1">User <SortIcon columnKey="user_name" /></div>
+                </th>
                 <th className="px-6 py-4">Reason</th>
-                <th className="px-6 py-4">Issued By</th>
-                <th className="px-6 py-4">Date</th>
+                <th className="px-6 py-4 cursor-pointer hover:bg-teal-900/20 group select-none transition-colors" onClick={() => handleSort('staff_name')}>
+                  <div className="flex items-center gap-1">Issued By <SortIcon columnKey="staff_name" /></div>
+                </th>
+                <th className="px-6 py-4 cursor-pointer hover:bg-teal-900/20 group select-none transition-colors" onClick={() => handleSort('warned_at')}>
+                  <div className="flex items-center gap-1">Date <SortIcon columnKey="warned_at" /></div>
+                </th>
                 <th className="px-6 py-4 text-right">Actions</th>
               </tr>
             </thead>
@@ -115,14 +206,14 @@ export default function WarningsPage() {
                     </div>
                   </td>
                 </tr>
-              ) : filteredWarnings.length === 0 ? (
+              ) : currentWarnings.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-6 py-8 text-center text-gray-400">
-                    No warnings found matching your search.
+                    No warnings found matching your filters.
                   </td>
                 </tr>
               ) : (
-                filteredWarnings.map((w) => (
+                currentWarnings.map((w) => (
                   <tr key={w.id} className="hover:bg-teal-900/10 transition-colors group">
                     <td className="px-6 py-4 text-gray-400 font-mono">#{w.id}</td>
                     <td className="px-6 py-4">
@@ -173,6 +264,58 @@ export default function WarningsPage() {
               )}
             </tbody>
           </table>
+          
+          {!loading && processedWarnings.length > 0 && (
+            <div className="px-6 py-4 border-t border-teal-900/30 bg-surface-dark/40 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm">
+              <div className="text-gray-400">
+                Showing <span className="text-white font-medium">{(currentPage - 1) * itemsPerPage + 1}</span> to <span className="text-white font-medium">{Math.min(currentPage * itemsPerPage, processedWarnings.length)}</span> of <span className="text-white font-medium">{processedWarnings.length}</span> entries
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="p-1 rounded-md text-gray-400 hover:text-white hover:bg-teal-900/30 disabled:opacity-50 disabled:hover:bg-transparent transition-colors"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
+                
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    let pageNum = currentPage;
+                    if (totalPages <= 5) pageNum = i + 1;
+                    else if (currentPage <= 3) pageNum = i + 1;
+                    else if (currentPage >= totalPages - 2) pageNum = totalPages - 4 + i;
+                    else pageNum = currentPage - 2 + i;
+                    
+                    if (pageNum < 1 || pageNum > totalPages) return null;
+                    
+                    return (
+                      <button
+                        key={pageNum}
+                        onClick={() => setCurrentPage(pageNum)}
+                        className={`w-8 h-8 rounded-md flex items-center justify-center transition-colors ${
+                          currentPage === pageNum 
+                            ? 'bg-teal-500 text-white font-medium shadow-md shadow-teal-900/20' 
+                            : 'text-gray-400 hover:text-white hover:bg-teal-900/30'
+                        }`}
+                      >
+                        {pageNum}
+                      </button>
+                    );
+                  })}
+                </div>
+                
+                <button 
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="p-1 rounded-md text-gray-400 hover:text-white hover:bg-teal-900/30 disabled:opacity-50 disabled:hover:bg-transparent transition-colors"
+                >
+                  <ChevronRight className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

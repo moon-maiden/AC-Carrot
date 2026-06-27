@@ -5,16 +5,16 @@ import { Settings, Save, AlertTriangle, Plus, X, Info, HelpCircle } from "lucide
 import { useGuild } from "../../context/GuildContext";
 
 type GuildConfig = {
-  staff_notice_channel_id: number | null;
-  staff_commands_channel_id: number | null;
-  staff_log_channel_id: number | null;
-  team_leader_role_id: number | null;
-  moderator_role_id: number | null;
-  trial_moderator_role_id: number | null;
-  submit_channel_id: number | null;
-  review_channel_id: number | null;
-  approved_channel_id: number | null;
-  approval_log_channel_id: number | null;
+  staff_notice_channel_id: string | null;
+  staff_commands_channel_id: string | null;
+  staff_log_channel_id: string | null;
+  team_leader_role_id: string | null;
+  moderator_role_id: string | null;
+  trial_moderator_role_id: string | null;
+  submit_channel_id: string | null;
+  review_channel_id: string | null;
+  approved_channel_id: string | null;
+  approval_log_channel_id: string | null;
   active_limit: number;
   reminder_threshold: number;
   accepted_currencies: string;
@@ -73,7 +73,7 @@ export default function SettingsPage() {
   const handleIdChange = (field: keyof GuildConfig, value: string) => {
     if (!config) return;
     const val = value.trim();
-    setConfig({ ...config, [field]: val === "" ? null : Number(val) });
+    setConfig({ ...config, [field]: val === "" ? null : val });
   };
 
   const handleReasonChange = (index: number, field: keyof VerbalReason, value: string) => {

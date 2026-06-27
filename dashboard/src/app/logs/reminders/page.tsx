@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Bell, Search, Trash2, RefreshCw, Calendar, MessageSquare, Clock } from "lucide-react";
+import { useEffect, useState, useMemo } from "react";
+import { Bell, Search, Trash2, RefreshCw, Calendar, MessageSquare, Clock, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Filter } from "lucide-react";
 import { useGuild } from "../../../context/GuildContext";
 
 type Reminder = {
@@ -21,6 +21,11 @@ export default function RemindersPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedReminder, setSelectedReminder] = useState<Reminder | null>(null);
   const { selectedGuildId } = useGuild();
+
+  // Pagination & Sorting State
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [sortConfig, setSortConfig] = useState<{ key: keyof Reminder; direction: 'asc' | 'desc' }>({ key: 'remind_at', direction: 'asc' });
 
   const fetchReminders = () => {
     if (!selectedGuildId || selectedGuildId === "0") return;
@@ -60,14 +65,56 @@ export default function RemindersPage() {
     }
   };
 
-  const filteredReminders = reminders.filter((r) => {
-    if (!searchQuery) return true;
-    const query = searchQuery.toLowerCase();
-    return (
-      (r.user_name && r.user_name.toLowerCase().includes(query)) ||
-      (r.about && r.about.toLowerCase().includes(query))
-    );
-  });
+  const processedReminders = useMemo(() => {
+    // 1. Filter
+    let filtered = reminders.filter((r) => {
+      if (!searchQuery) return true;
+      const query = searchQuery.toLowerCase();
+      return (
+        (r.user_name && r.user_name.toLowerCase().includes(query)) ||
+        (r.about && r.about.toLowerCase().includes(query))
+      );
+    });
+
+    // 2. Sort
+    filtered.sort((a, b) => {
+      let aValue = a[sortConfig.key];
+      let bValue = b[sortConfig.key];
+      
+      if (aValue === null) aValue = "";
+      if (bValue === null) bValue = "";
+      
+      if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
+      if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
+      return 0;
+    });
+
+    return filtered;
+  }, [reminders, searchQuery, sortConfig]);
+
+  // Pagination boundaries
+  const totalPages = Math.ceil(processedReminders.length / itemsPerPage) || 1;
+  const currentReminders = processedReminders.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, itemsPerPage]);
+
+  const handleSort = (key: keyof Reminder) => {
+    setSortConfig(prev => ({
+      key,
+      direction: prev.key === key && prev.direction === 'desc' ? 'asc' : 'desc'
+    }));
+  };
+
+  const SortIcon = ({ columnKey }: { columnKey: keyof Reminder }) => {
+    if (sortConfig.key !== columnKey) return <div className="w-4 h-4 opacity-0 group-hover:opacity-30 transition-opacity"><ChevronDown className="w-4 h-4" /></div>;
+    return sortConfig.direction === 'asc' ? <ChevronUp className="w-4 h-4 text-teal-400" /> : <ChevronDown className="w-4 h-4 text-teal-400" />;
+  };
 
   return (
     <div className="space-y-6">
@@ -102,14 +149,37 @@ export default function RemindersPage() {
         </div>
       </div>
 
+      <div className="flex justify-end items-center bg-surface-dark/50 p-3 rounded-lg border border-teal-900/30">
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-gray-400">Show:</span>
+          <select 
+            value={itemsPerPage} 
+            onChange={(e) => setItemsPerPage(Number(e.target.value))}
+            className="bg-surface-dark border border-teal-900/40 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-teal-500"
+          >
+            <option value={10}>10</option>
+            <option value={25}>25</option>
+            <option value={50}>50</option>
+            <option value={100}>100</option>
+          </select>
+          <span className="text-sm text-gray-400">entries</span>
+        </div>
+      </div>
+
       <div className="glass-panel rounded-xl border border-teal-900/30 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-surface-dark/50 border-b border-teal-900/30">
-                <th className="px-6 py-4 text-xs font-semibold text-teal-600/70 uppercase tracking-wider">User</th>
-                <th className="px-6 py-4 text-xs font-semibold text-teal-600/70 uppercase tracking-wider">About</th>
-                <th className="px-6 py-4 text-xs font-semibold text-teal-600/70 uppercase tracking-wider">Remind At</th>
+                <th className="px-6 py-4 text-xs font-semibold text-teal-600/70 uppercase tracking-wider cursor-pointer hover:bg-teal-900/20 group select-none transition-colors" onClick={() => handleSort('user_name')}>
+                  <div className="flex items-center gap-1">User <SortIcon columnKey="user_name" /></div>
+                </th>
+                <th className="px-6 py-4 text-xs font-semibold text-teal-600/70 uppercase tracking-wider cursor-pointer hover:bg-teal-900/20 group select-none transition-colors" onClick={() => handleSort('about')}>
+                  <div className="flex items-center gap-1">About <SortIcon columnKey="about" /></div>
+                </th>
+                <th className="px-6 py-4 text-xs font-semibold text-teal-600/70 uppercase tracking-wider cursor-pointer hover:bg-teal-900/20 group select-none transition-colors" onClick={() => handleSort('remind_at')}>
+                  <div className="flex items-center gap-1">Remind At <SortIcon columnKey="remind_at" /></div>
+                </th>
                 <th className="px-6 py-4 text-xs font-semibold text-teal-600/70 uppercase tracking-wider text-right">Actions</th>
               </tr>
             </thead>
@@ -121,14 +191,14 @@ export default function RemindersPage() {
                     Loading reminders...
                   </td>
                 </tr>
-              ) : filteredReminders.length === 0 ? (
+              ) : currentReminders.length === 0 ? (
                 <tr>
                   <td colSpan={4} className="px-6 py-12 text-center text-gray-500">
                     No reminders found matching your criteria.
                   </td>
                 </tr>
               ) : (
-                filteredReminders.map((r) => (
+                currentReminders.map((r) => (
                   <tr 
                     key={r.id} 
                     className="hover:bg-white/[0.02] transition-colors cursor-pointer"
@@ -169,6 +239,58 @@ export default function RemindersPage() {
               )}
             </tbody>
           </table>
+          
+          {!loading && processedReminders.length > 0 && (
+            <div className="px-6 py-4 border-t border-teal-900/30 bg-surface-dark/40 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm">
+              <div className="text-gray-400">
+                Showing <span className="text-white font-medium">{(currentPage - 1) * itemsPerPage + 1}</span> to <span className="text-white font-medium">{Math.min(currentPage * itemsPerPage, processedReminders.length)}</span> of <span className="text-white font-medium">{processedReminders.length}</span> entries
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="p-1 rounded-md text-gray-400 hover:text-white hover:bg-teal-900/30 disabled:opacity-50 disabled:hover:bg-transparent transition-colors"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
+                
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    let pageNum = currentPage;
+                    if (totalPages <= 5) pageNum = i + 1;
+                    else if (currentPage <= 3) pageNum = i + 1;
+                    else if (currentPage >= totalPages - 2) pageNum = totalPages - 4 + i;
+                    else pageNum = currentPage - 2 + i;
+                    
+                    if (pageNum < 1 || pageNum > totalPages) return null;
+                    
+                    return (
+                      <button
+                        key={pageNum}
+                        onClick={() => setCurrentPage(pageNum)}
+                        className={`w-8 h-8 rounded-md flex items-center justify-center transition-colors ${
+                          currentPage === pageNum 
+                            ? 'bg-teal-500 text-white font-medium shadow-md shadow-teal-900/20' 
+                            : 'text-gray-400 hover:text-white hover:bg-teal-900/30'
+                        }`}
+                      >
+                        {pageNum}
+                      </button>
+                    );
+                  })}
+                </div>
+                
+                <button 
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="p-1 rounded-md text-gray-400 hover:text-white hover:bg-teal-900/30 disabled:opacity-50 disabled:hover:bg-transparent transition-colors"
+                >
+                  <ChevronRight className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

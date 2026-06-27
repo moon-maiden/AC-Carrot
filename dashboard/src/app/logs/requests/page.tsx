@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { CreditCard, Search, RefreshCw, X } from "lucide-react";
+import { useEffect, useState, useMemo } from "react";
+import { CreditCard, Search, RefreshCw, X, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Filter } from "lucide-react";
 import { useGuild } from "../../../context/GuildContext";
 
 type PaidRequest = {
@@ -25,6 +25,12 @@ export default function RequestsPage() {
   const [selectedRequest, setSelectedRequest] = useState<PaidRequest | null>(null);
   const { selectedGuildId } = useGuild();
 
+  // Pagination & Sorting State
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [sortConfig, setSortConfig] = useState<{ key: keyof PaidRequest; direction: 'asc' | 'desc' }>({ key: 'request_id', direction: 'desc' });
+  const [statusFilter, setStatusFilter] = useState<string>("All");
+
   const fetchRequests = () => {
     if (!selectedGuildId || selectedGuildId === "0") return;
     setLoading(true);
@@ -47,15 +53,58 @@ export default function RequestsPage() {
     }
   }, [selectedGuildId]);
 
-  const filteredRequests = requests.filter((r) => {
-    const query = searchQuery.toLowerCase();
-    return (
-      (r.user_name || "").toLowerCase().includes(query) ||
-      (r.user_id || "").toString().includes(query) ||
-      (r.payment_method || "").toLowerCase().includes(query) ||
-      (r.status || "").toLowerCase().includes(query)
-    );
-  });
+  const processedRequests = useMemo(() => {
+    // 1. Filter
+    let filtered = requests.filter((r) => {
+      const query = searchQuery.toLowerCase();
+      const matchesSearch = (r.user_name || "").toLowerCase().includes(query) ||
+        (r.user_id || "").toString().includes(query) ||
+        (r.payment_method || "").toLowerCase().includes(query) ||
+        (r.status || "").toLowerCase().includes(query);
+      
+      const matchesStatus = statusFilter === "All" || r.status.toLowerCase() === statusFilter.toLowerCase();
+      return matchesSearch && matchesStatus;
+    });
+
+    // 2. Sort
+    filtered.sort((a, b) => {
+      let aValue = a[sortConfig.key];
+      let bValue = b[sortConfig.key];
+      
+      if (aValue === null) aValue = "";
+      if (bValue === null) bValue = "";
+      
+      if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
+      if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
+      return 0;
+    });
+
+    return filtered;
+  }, [requests, searchQuery, statusFilter, sortConfig]);
+
+  // Pagination boundaries
+  const totalPages = Math.ceil(processedRequests.length / itemsPerPage) || 1;
+  const currentRequests = processedRequests.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, statusFilter, itemsPerPage]);
+
+  const handleSort = (key: keyof PaidRequest) => {
+    setSortConfig(prev => ({
+      key,
+      direction: prev.key === key && prev.direction === 'desc' ? 'asc' : 'desc'
+    }));
+  };
+
+  const SortIcon = ({ columnKey }: { columnKey: keyof PaidRequest }) => {
+    if (sortConfig.key !== columnKey) return <div className="w-4 h-4 opacity-0 group-hover:opacity-30 transition-opacity"><ChevronDown className="w-4 h-4" /></div>;
+    return sortConfig.direction === 'asc' ? <ChevronUp className="w-4 h-4 text-teal-400" /> : <ChevronDown className="w-4 h-4 text-teal-400" />;
+  };
 
   return (
     <div className="space-y-6">
@@ -90,17 +139,61 @@ export default function RequestsPage() {
         </div>
       </div>
 
+      <div className="flex flex-col sm:flex-row justify-between items-center gap-4 bg-surface-dark/50 p-3 rounded-lg border border-teal-900/30">
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <Filter className="w-4 h-4 text-teal-500" />
+          <span className="text-sm text-gray-400">Status:</span>
+          <select 
+            value={statusFilter} 
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="bg-surface-dark border border-teal-900/40 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-teal-500 w-full sm:w-auto min-w-[120px]"
+          >
+            <option value="All">All Requests</option>
+            <option value="Pending">Pending</option>
+            <option value="Approved">Approved</option>
+            <option value="Rejected">Rejected</option>
+          </select>
+        </div>
+        
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <span className="text-sm text-gray-400">Show:</span>
+          <select 
+            value={itemsPerPage} 
+            onChange={(e) => setItemsPerPage(Number(e.target.value))}
+            className="bg-surface-dark border border-teal-900/40 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-teal-500"
+          >
+            <option value={10}>10</option>
+            <option value={25}>25</option>
+            <option value={50}>50</option>
+            <option value={100}>100</option>
+          </select>
+          <span className="text-sm text-gray-400">entries</span>
+        </div>
+      </div>
+
       <div className="glass-panel rounded-xl overflow-hidden shadow-2xl">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead>
               <tr className="bg-surface-dark/80 border-b border-teal-900/30 text-teal-400/80 font-medium">
-                <th className="px-6 py-4">Request ID</th>
-                <th className="px-6 py-4">User</th>
-                <th className="px-6 py-4">Budget</th>
-                <th className="px-6 py-4">Payment Method</th>
-                <th className="px-6 py-4">Status</th>
-                <th className="px-6 py-4">Date</th>
+                <th className="px-6 py-4 cursor-pointer hover:bg-teal-900/20 group select-none transition-colors" onClick={() => handleSort('request_id')}>
+                  <div className="flex items-center gap-1">Request ID <SortIcon columnKey="request_id" /></div>
+                </th>
+                <th className="px-6 py-4 cursor-pointer hover:bg-teal-900/20 group select-none transition-colors" onClick={() => handleSort('user_name')}>
+                  <div className="flex items-center gap-1">User <SortIcon columnKey="user_name" /></div>
+                </th>
+                <th className="px-6 py-4 cursor-pointer hover:bg-teal-900/20 group select-none transition-colors" onClick={() => handleSort('budget')}>
+                  <div className="flex items-center gap-1">Budget <SortIcon columnKey="budget" /></div>
+                </th>
+                <th className="px-6 py-4 cursor-pointer hover:bg-teal-900/20 group select-none transition-colors" onClick={() => handleSort('payment_method')}>
+                  <div className="flex items-center gap-1">Payment Method <SortIcon columnKey="payment_method" /></div>
+                </th>
+                <th className="px-6 py-4 cursor-pointer hover:bg-teal-900/20 group select-none transition-colors" onClick={() => handleSort('status')}>
+                  <div className="flex items-center gap-1">Status <SortIcon columnKey="status" /></div>
+                </th>
+                <th className="px-6 py-4 cursor-pointer hover:bg-teal-900/20 group select-none transition-colors" onClick={() => handleSort('created_at')}>
+                  <div className="flex items-center gap-1">Date <SortIcon columnKey="created_at" /></div>
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-teal-900/20 bg-surface-dark/40">
@@ -113,14 +206,14 @@ export default function RequestsPage() {
                     </div>
                   </td>
                 </tr>
-              ) : filteredRequests.length === 0 ? (
+              ) : currentRequests.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-6 py-8 text-center text-gray-400">
-                    No paid requests found matching your search.
+                    No paid requests found matching your filters.
                   </td>
                 </tr>
               ) : (
-                filteredRequests.map((r) => (
+                currentRequests.map((r) => (
                   <tr 
                     key={r.request_id} 
                     className="hover:bg-white/[0.02] transition-colors cursor-pointer"
@@ -167,6 +260,58 @@ export default function RequestsPage() {
               )}
             </tbody>
           </table>
+          
+          {!loading && processedRequests.length > 0 && (
+            <div className="px-6 py-4 border-t border-teal-900/30 bg-surface-dark/40 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm">
+              <div className="text-gray-400">
+                Showing <span className="text-white font-medium">{(currentPage - 1) * itemsPerPage + 1}</span> to <span className="text-white font-medium">{Math.min(currentPage * itemsPerPage, processedRequests.length)}</span> of <span className="text-white font-medium">{processedRequests.length}</span> entries
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="p-1 rounded-md text-gray-400 hover:text-white hover:bg-teal-900/30 disabled:opacity-50 disabled:hover:bg-transparent transition-colors"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
+                
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    let pageNum = currentPage;
+                    if (totalPages <= 5) pageNum = i + 1;
+                    else if (currentPage <= 3) pageNum = i + 1;
+                    else if (currentPage >= totalPages - 2) pageNum = totalPages - 4 + i;
+                    else pageNum = currentPage - 2 + i;
+                    
+                    if (pageNum < 1 || pageNum > totalPages) return null;
+                    
+                    return (
+                      <button
+                        key={pageNum}
+                        onClick={() => setCurrentPage(pageNum)}
+                        className={`w-8 h-8 rounded-md flex items-center justify-center transition-colors ${
+                          currentPage === pageNum 
+                            ? 'bg-teal-500 text-white font-medium shadow-md shadow-teal-900/20' 
+                            : 'text-gray-400 hover:text-white hover:bg-teal-900/30'
+                        }`}
+                      >
+                        {pageNum}
+                      </button>
+                    );
+                  })}
+                </div>
+                
+                <button 
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="p-1 rounded-md text-gray-400 hover:text-white hover:bg-teal-900/30 disabled:opacity-50 disabled:hover:bg-transparent transition-colors"
+                >
+                  <ChevronRight className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
