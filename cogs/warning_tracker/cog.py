@@ -330,10 +330,12 @@ class WarningTracker(commands.Cog):
         # Warning threshold check (3 warnings in 3 months)
         count = await database.get_warnings_count_last_3_months(message.author.id)
         if count >= 3:
-            commands_channel = self.bot.get_channel(self.commands_channel_id)
-            if not commands_channel:
+            guild_config = await database.get_guild_config(message.guild.id if message.guild else 0)
+            commands_channel_id = guild_config.get("staff_commands_channel_id") or 0
+            commands_channel = self.bot.get_channel(commands_channel_id)
+            if not commands_channel and commands_channel_id:
                 try:
-                    commands_channel = await asyncio.wait_for(self.bot.fetch_channel(self.commands_channel_id), timeout=5.0)
+                    commands_channel = await asyncio.wait_for(self.bot.fetch_channel(commands_channel_id), timeout=5.0)
                 except Exception:
                     pass
             if commands_channel:

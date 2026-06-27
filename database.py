@@ -275,7 +275,22 @@ async def get_guild_config(guild_id: int):
             
         row = await cursor.fetchone()
         if row:
-            return dict(row)
+            d = dict(row)
+            # Safe conversion of Discord IDs and booleans to integers
+            keys_to_cast = [
+                "guild_id", "staff_notice_channel_id", "staff_commands_channel_id", "staff_log_channel_id",
+                "team_leader_role_id", "moderator_role_id", "trial_moderator_role_id",
+                "submit_channel_id", "review_channel_id", "approved_channel_id", "approval_log_channel_id",
+                "dm_on_warning"
+            ]
+            for k in keys_to_cast:
+                if k in d and d[k] is not None:
+                    try:
+                        d[k] = int(d[k])
+                    except (ValueError, TypeError):
+                        d[k] = 0
+            return d
+
             
         # Return sensible defaults if no config is set
         return {
