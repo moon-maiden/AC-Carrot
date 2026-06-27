@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import { sendLogToChannel } from "../../../lib/api";
+import { sendLogToChannel } from "@/lib/api";
 import { ShieldAlert, Search, Trash2, RefreshCw, Clock, MessageSquare, ExternalLink, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Filter } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { useGuild } from "../../../context/GuildContext";
@@ -240,6 +240,20 @@ export default function WarningsPage() {
                         className="text-teal-400 hover:text-teal-300 bg-teal-500/10 hover:bg-teal-500/20 px-3 py-1.5 rounded text-xs font-medium transition-colors"
                       >
                         View Details
+                      </button>
+                      <button
+                        onClick={async () => {
+                          try {
+                            await sendLogToChannel(selectedGuildId ?? "0", "warning", w.id.toString());
+                            alert("Log sent to channel");
+                          } catch (e) {
+                            console.error(e);
+                            alert("Failed to send log");
+                          }
+                        }}
+                        className="ml-2 text-teal-400 hover:text-teal-300 bg-teal-500/10 hover:bg-teal-500/20 px-3 py-1.5 rounded text-xs font-medium transition-colors"
+                      >
+                        Send to Channel
                       </button>
                     </td>
                   </tr>
