@@ -101,11 +101,6 @@ async def init_db():
         except aiosqlite.OperationalError:
             pass # Column already exists
 
-        # Data patch: move the accidentally assigned records from temp server to Art Commissions (369798142289510401)
-        await db.execute('UPDATE warnings SET guild_id = 369798142289510401 WHERE guild_id = 1437362160211726452 OR guild_id IS NULL')
-        await db.execute('UPDATE paid_requests SET guild_id = 369798142289510401 WHERE guild_id = 1437362160211726452 OR guild_id IS NULL')
-        await db.commit()
-
 
         
         await db.execute('''
