@@ -403,6 +403,7 @@ class WarningTracker(commands.Cog):
         config = await database.get_guild_config(message.guild.id if message.guild else 0)
         notice_channel_id = config.get("staff_notice_channel_id") or 0
         commands_channel_id = config.get("staff_commands_channel_id") or 0
+        log_channel_id = config.get("staff_log_channel_id") or 0
 
         # Check if the message is in the staff-notice channel
         if message.channel.id != notice_channel_id:
@@ -416,6 +417,13 @@ class WarningTracker(commands.Cog):
         if not commands_channel:
             try:
                 commands_channel = await asyncio.wait_for(self.bot.fetch_channel(commands_channel_id), timeout=5.0)
+            except Exception:
+                pass
+                
+        log_channel = self.bot.get_channel(log_channel_id)
+        if not log_channel and log_channel_id:
+            try:
+                log_channel = await asyncio.wait_for(self.bot.fetch_channel(log_channel_id), timeout=5.0)
             except Exception:
                 pass
         
@@ -449,7 +457,7 @@ class WarningTracker(commands.Cog):
             attachments_data = json.dumps(saved_attachments) if saved_attachments else None
 
             # Add warning to database (saving message content)
-            await database.add_warning(
+            warn_id = await database.add_warning(
                 user_id=user.id,
                 channel_id=message.channel.id,
                 message_id=message.id,
@@ -460,6 +468,44 @@ class WarningTracker(commands.Cog):
                 guild_id=message.guild.id if message.guild else None,
                 attachments=attachments_data
             )
+            
+            # Log to staff log channel
+            if log_channel:
+                orig_ts = int(message.created_at.timestamp())
+                log_embed = discord.Embed(
+                    title="Log: Verbal Notice Issued",
+                    color=discord.Color.orange()
+                )
+                log_embed.add_field(name="Warning ID", value=f"#{warn_id}", inline=False)
+                log_embed.add_field(name="Staff Member", value=f"{message.author.mention} ({message.author.id})", inline=True)
+                log_embed.add_field(name="Original Author", value=f"{user.mention} ({user.id})", inline=True)
+                log_embed.add_field(name="Channel", value=get_channel_mention(message.channel), inline=True)
+                log_embed.add_field(name="Warning Issued At", value=f"<t:{orig_ts}:f> (<t:{orig_ts}:R>)", inline=True)
+                
+                reason_text = message.content
+                if len(reason_text) > 1024:
+                    reason_text = reason_text[:1021] + "..."
+                log_embed.add_field(name="Warning Reason", value=reason_text, inline=False)
+                
+                dashboard_url = os.getenv("DASHBOARD_URL", "http://localhost:3000")
+                log_link = f"[log](https://{dashboard_url}/guilds/{message.guild.id if message.guild else 0}/logs/warnings/{warn_id})"
+                
+                log_embed.add_field(
+                    name="Original Post Content",
+                    value=f"```\n(none)\n```\n{log_link}",
+                    inline=False
+                )
+                
+                if all_attachments:
+                    attachments_list = "\n".join([a.url for a in all_attachments])
+                    if len(attachments_list) > 1024:
+                        attachments_list = attachments_list[:1020] + "..."
+                    log_embed.add_field(name="Notice Attachments", value=attachments_list, inline=False)
+
+                try:
+                    await log_channel.send(embed=log_embed)
+                except Exception as e:
+                    print(f"Error sending manual warn log embed: {e}")
             
             # Check warning count
             count = await database.get_warnings_count_last_3_months(user.id)
