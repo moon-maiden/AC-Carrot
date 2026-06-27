@@ -63,7 +63,16 @@ async def health_check():
     return {"status": "ok"}
 
 @app.get("/api/guilds/{guild_id}/warnings")
-async def get_warnings(request: Request, guild_id: int, limit: int = 50, offset: int = 0):
+async def get_warnings(
+    request: Request, 
+    guild_id: int, 
+    page: int = 1, 
+    limit: int = 10, 
+    sort_key: str = "id", 
+    sort_dir: str = "desc", 
+    search: str = "", 
+    staff: str = ""
+):
     async with database.aiosqlite.connect(database.DB_NAME) as db:
         db.row_factory = database.aiosqlite.Row
         
@@ -71,34 +80,95 @@ async def get_warnings(request: Request, guild_id: int, limit: int = 50, offset:
             cursor = await db.execute('''
                 SELECT id, user_id, warned_at, channel_id, message_id, message_content, staff_id, reason, post_created_at, attachments 
                 FROM warnings
-                ORDER BY warned_at DESC
-                LIMIT ? OFFSET ?
-            ''', (limit, offset))
-            rows = await cursor.fetchall()
-            warnings = [dict(row) for row in rows]
-            
-            count_cursor = await db.execute('SELECT COUNT(*) FROM warnings')
-            total = (await count_cursor.fetchone())[0]
+            ''')
         else:
             cursor = await db.execute('''
                 SELECT id, user_id, warned_at, channel_id, message_id, message_content, staff_id, reason, post_created_at, attachments 
                 FROM warnings
                 WHERE guild_id = ?
-                ORDER BY warned_at DESC
-                LIMIT ? OFFSET ?
-            ''', (guild_id, limit, offset))
-            rows = await cursor.fetchall()
-            warnings = [dict(row) for row in rows]
-            
-            count_cursor = await db.execute('''
-                SELECT COUNT(*) FROM warnings WHERE guild_id = ?
             ''', (guild_id,))
-            total = (await count_cursor.fetchone())[0]
+        rows = await cursor.fetchall()
+        warnings = [dict(row) for row in rows]
 
-    # Parse attachments JSON and build dynamic URLs
+    # Quick local resolution for filtering and staff list (no slow network calls)
+    resolved_warnings = []
+    for w in warnings:
+        # Fast local resolve for user name
+        uid = w['user_id']
+        u_cached = user_cache.get(uid)
+        if u_cached:
+            w['user_name'] = u_cached['name']
+        else:
+            u_obj = bot_client.get_user(uid) if bot_client else None
+            if u_obj:
+                w['user_name'] = str(u_obj)
+                user_cache[uid] = {"name": str(u_obj), "avatar": u_obj.display_avatar.url}
+            else:
+                w['user_name'] = f"Unknown ({uid})"
+
+        # Fast local resolve for staff name
+        sid = w['staff_id']
+        if sid:
+            s_cached = user_cache.get(sid)
+            if s_cached:
+                w['staff_name'] = s_cached['name']
+            else:
+                s_obj = bot_client.get_user(sid) if bot_client else None
+                if s_obj:
+                    w['staff_name'] = str(s_obj)
+                    user_cache[sid] = {"name": str(s_obj), "avatar": s_obj.display_avatar.url}
+                else:
+                    w['staff_name'] = f"Unknown ({sid})"
+        else:
+            w['staff_name'] = "System"
+            
+        resolved_warnings.append(w)
+
+    # Extract unique staff list from ALL warnings in this guild before filtering
+    all_staff_names = sorted(list(set(w['staff_name'] for w in resolved_warnings)))
+
+    # Apply Filters
+    filtered_warnings = resolved_warnings
+    
+    if staff and staff != "All":
+        filtered_warnings = [w for w in filtered_warnings if w['staff_name'].lower() == staff.lower()]
+        
+    if search:
+        search_lower = search.lower().strip()
+        filtered_warnings = [
+            w for w in filtered_warnings 
+            if (w['reason'] and search_lower in w['reason'].lower())
+            or (search_lower in w['user_name'].lower())
+            or (search_lower in str(w['user_id']))
+            or (search_lower in f"#{w['id']}")
+            or (search_lower in str(w['id']))
+        ]
+        
+    filtered_total = len(filtered_warnings)
+
+    # Apply Sorting
+    if sort_key:
+        reverse = (sort_dir == "desc")
+        def get_sort_val(item):
+            val = item.get(sort_key)
+            if val is None:
+                return "" if isinstance(sort_key, str) else 0
+            return val
+        try:
+            filtered_warnings.sort(key=get_sort_val, reverse=reverse)
+        except Exception:
+            filtered_warnings.sort(key=lambda item: str(item.get(sort_key) or ""), reverse=reverse)
+
+    # Apply Pagination
+    start = (page - 1) * limit
+    end = start + limit
+    page_warnings = filtered_warnings[start:end]
+
+    # Full API fetch/resolution for only the paginated slice
     base_url = str(request.base_url).rstrip('/')
     import json
-    for w in warnings:
+    for w in page_warnings:
+        # Resolve attachments URL
         if w.get('attachments'):
             try:
                 atts = json.loads(w['attachments'])
@@ -118,34 +188,29 @@ async def get_warnings(request: Request, guild_id: int, limit: int = 50, offset:
         else:
             w['attachments'] = []
 
-    # Dynamically resolve Discord usernames
-    if bot_client:
-        for w in warnings:
-            # Target User
-            user_id = w.get('user_id')
-            user_data = await get_cached_user(user_id)
-            if user_data:
-                w['user_name'] = user_data['name']
-                w['user_avatar'] = user_data['avatar']
+        # Full resolve user (can make fetch_user request if not in memory)
+        user_data = await get_cached_user(w['user_id'])
+        if user_data:
+            w['user_name'] = user_data['name']
+            w['user_avatar'] = user_data['avatar']
+        else:
+            w['user_name'] = f"Unknown ({w['user_id']})"
+            w['user_avatar'] = None
+        
+        # Full resolve staff
+        if w['staff_id']:
+            staff_data = await get_cached_user(w['staff_id'])
+            if staff_data:
+                w['staff_name'] = staff_data['name']
+                w['staff_avatar'] = staff_data['avatar']
             else:
-                w['user_name'] = f"Unknown ({user_id})" if user_id else "Unknown"
-                w['user_avatar'] = None
-
-            # Staff User
-            staff_id = w.get('staff_id')
-            if staff_id:
-                staff_data = await get_cached_user(staff_id)
-                if staff_data:
-                    w['staff_name'] = staff_data['name']
-                    w['staff_avatar'] = staff_data['avatar']
-                else:
-                    w['staff_name'] = f"Unknown ({staff_id})"
-                    w['staff_avatar'] = None
-            else:
-                w['staff_name'] = "System"
+                w['staff_name'] = f"Unknown ({w['staff_id']})"
                 w['staff_avatar'] = None
+        else:
+            w['staff_name'] = "System"
+            w['staff_avatar'] = None
 
-    return {"warnings": warnings, "total": total}
+    return {"warnings": page_warnings, "total": filtered_total, "staff_list": all_staff_names}
 
 @app.get("/api/warnings/{warning_id}")
 async def get_single_warning(request: Request, warning_id: int):

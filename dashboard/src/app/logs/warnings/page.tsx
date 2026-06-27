@@ -3,7 +3,7 @@
 import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 
-import { ShieldAlert, Search, Trash2, RefreshCw, Clock, MessageSquare, ExternalLink, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Filter } from "lucide-react";
+import { ShieldAlert, Search, Trash2, RefreshCw, Clock, MessageSquare, ExternalLink, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Filter } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { useGuild } from "../../../context/GuildContext";
 
@@ -72,6 +72,8 @@ function WarningsPageContent() {
   const [sortConfig, setSortConfig] = useState<{ key: keyof Warning; direction: 'asc' | 'desc' }>({ key: 'id', direction: 'desc' });
   const [staffFilter, setStaffFilter] = useState<string>("All");
   const [totalCount, setTotalCount] = useState(0);
+  const [staffList, setStaffList] = useState<string[]>([]);
+  const [pageInput, setPageInput] = useState("1");
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -96,6 +98,7 @@ function WarningsPageContent() {
       .then((data) => {
         setWarnings(data.warnings || []);
         setTotalCount(data.total || 0);
+        setStaffList(data.staff_list || []);
         setLoading(false);
       })
       .catch((err) => {
@@ -116,6 +119,10 @@ function WarningsPageContent() {
     fetchWarnings();
   }, [selectedGuildId, currentPage, itemsPerPage, sortConfig, searchQuery, staffFilter]);
 
+  useEffect(() => {
+    setPageInput(currentPage.toString());
+  }, [currentPage]);
+
   const processedWarnings = warnings;
 
   // Pagination boundaries
@@ -127,7 +134,7 @@ function WarningsPageContent() {
     setCurrentPage(1);
   }, [searchQuery, staffFilter, itemsPerPage]);
 
-  const uniqueStaff = Array.from(new Set(warnings.map(w => w.staff_name))).sort();
+  const uniqueStaff = staffList;
 
   const handleSort = (key: keyof Warning) => {
     setSortConfig(prev => ({
@@ -325,48 +332,102 @@ function WarningsPageContent() {
                 Showing <span className="text-white font-medium">{(currentPage - 1) * itemsPerPage + 1}</span> to <span className="text-white font-medium">{Math.min(currentPage * itemsPerPage, totalCount)}</span> of <span className="text-white font-medium">{totalCount}</span> entries
               </div>
               
-              <div className="flex items-center gap-2">
-                <button 
-                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                  disabled={currentPage === 1}
-                  className="p-1 rounded-md text-gray-400 hover:text-white hover:bg-teal-900/30 disabled:opacity-50 disabled:hover:bg-transparent transition-colors"
-                >
-                  <ChevronLeft className="w-5 h-5" />
-                </button>
-                
-                <div className="flex items-center gap-1">
-                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                    let pageNum = currentPage;
-                    if (totalPages <= 5) pageNum = i + 1;
-                    else if (currentPage <= 3) pageNum = i + 1;
-                    else if (currentPage >= totalPages - 2) pageNum = totalPages - 4 + i;
-                    else pageNum = currentPage - 2 + i;
-                    
-                    if (pageNum < 1 || pageNum > totalPages) return null;
-                    
-                    return (
-                      <button
-                        key={pageNum}
-                        onClick={() => setCurrentPage(pageNum)}
-                        className={`w-8 h-8 rounded-md flex items-center justify-center transition-colors ${
-                          currentPage === pageNum 
-                            ? 'bg-teal-500 text-white font-medium shadow-md shadow-teal-900/20' 
-                            : 'text-gray-400 hover:text-white hover:bg-teal-900/30'
-                        }`}
-                      >
-                        {pageNum}
-                      </button>
-                    );
-                  })}
+              <div className="flex flex-wrap items-center gap-4">
+                {/* Type Page Number */}
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-400">Go to page:</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={totalPages}
+                    value={pageInput}
+                    onChange={(e) => setPageInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        const pageNum = parseInt(pageInput, 10);
+                        if (!isNaN(pageNum) && pageNum >= 1 && pageNum <= totalPages) {
+                          setCurrentPage(pageNum);
+                        } else {
+                          setPageInput(currentPage.toString());
+                        }
+                      }
+                    }}
+                    onBlur={() => {
+                      const pageNum = parseInt(pageInput, 10);
+                      if (!isNaN(pageNum) && pageNum >= 1 && pageNum <= totalPages) {
+                        setCurrentPage(pageNum);
+                      } else {
+                        setPageInput(currentPage.toString());
+                      }
+                    }}
+                    className="w-14 bg-surface-dark border border-teal-900/40 rounded px-2 py-1 text-center text-sm text-white focus:outline-none focus:border-teal-500/50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  />
+                  <span className="text-gray-400">of {totalPages}</span>
                 </div>
-                
-                <button 
-                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                  disabled={currentPage === totalPages}
-                  className="p-1 rounded-md text-gray-400 hover:text-white hover:bg-teal-900/30 disabled:opacity-50 disabled:hover:bg-transparent transition-colors"
-                >
-                  <ChevronRight className="w-5 h-5" />
-                </button>
+
+                <div className="flex items-center gap-1.5">
+                  <button 
+                    onClick={() => setCurrentPage(1)}
+                    disabled={currentPage === 1}
+                    className="p-1.5 rounded-md text-gray-400 hover:text-white hover:bg-teal-900/30 disabled:opacity-50 disabled:hover:bg-transparent transition-colors"
+                    title="First Page"
+                  >
+                    <ChevronsLeft className="w-4 h-4" />
+                  </button>
+
+                  <button 
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    className="p-1.5 rounded-md text-gray-400 hover:text-white hover:bg-teal-900/30 disabled:opacity-50 disabled:hover:bg-transparent transition-colors"
+                    title="Previous Page"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  
+                  <div className="flex items-center gap-1">
+                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                      let pageNum = currentPage;
+                      if (totalPages <= 5) pageNum = i + 1;
+                      else if (currentPage <= 3) pageNum = i + 1;
+                      else if (currentPage >= totalPages - 2) pageNum = totalPages - 4 + i;
+                      else pageNum = currentPage - 2 + i;
+                      
+                      if (pageNum < 1 || pageNum > totalPages) return null;
+                      
+                      return (
+                        <button
+                          key={pageNum}
+                          onClick={() => setCurrentPage(pageNum)}
+                          className={`w-8 h-8 rounded-md flex items-center justify-center transition-colors ${
+                            currentPage === pageNum 
+                              ? 'bg-teal-500 text-white font-medium shadow-md shadow-teal-900/20' 
+                              : 'text-gray-400 hover:text-white hover:bg-teal-900/30'
+                          }`}
+                        >
+                          {pageNum}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  
+                  <button 
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                    className="p-1.5 rounded-md text-gray-400 hover:text-white hover:bg-teal-900/30 disabled:opacity-50 disabled:hover:bg-transparent transition-colors"
+                    title="Next Page"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+
+                  <button 
+                    onClick={() => setCurrentPage(totalPages)}
+                    disabled={currentPage === totalPages}
+                    className="p-1.5 rounded-md text-gray-400 hover:text-white hover:bg-teal-900/30 disabled:opacity-50 disabled:hover:bg-transparent transition-colors"
+                    title="Last Page"
+                  >
+                    <ChevronsRight className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             </div>
           )}
