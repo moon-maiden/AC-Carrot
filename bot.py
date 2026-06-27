@@ -24,7 +24,7 @@ load_dotenv()
 # We need message content intent to read #staff-notice mentions
 intents = discord.Intents.default()
 intents.message_content = True
-intents.members = True
+intents.members = False
 
 class ACCarrotBot(commands.Bot):
     def __init__(self):

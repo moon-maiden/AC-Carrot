@@ -59,43 +59,67 @@ async def get_cached_user(user_id):
     return None
 
 async def get_guild_staff_names(guild_id: int) -> list[str]:
-    if not bot_client or guild_id == 0:
-        return []
-    guild = bot_client.get_guild(guild_id)
-    if not guild:
-        try:
-            guild = await bot_client.fetch_guild(guild_id)
-        except Exception:
-            return []
-            
-    config = await database.get_guild_config(guild_id)
-    staff_role_ids = []
-    for k in ["team_leader_role_id", "moderator_role_id", "trial_moderator_role_id"]:
-        role_val = config.get(k)
-        if role_val:
-            try:
-                staff_role_ids.append(int(role_val))
-            except (ValueError, TypeError):
-                pass
-                
-    if not staff_role_ids:
-        return []
-        
     staff_names = []
     
-    # Try using guild.members if available
-    members = guild.members
-    if not members or len(members) <= 1:
+    # 1. Try using guild members (only works if members intent is enabled in Developer Portal)
+    if bot_client and guild_id != 0:
+        guild = bot_client.get_guild(guild_id)
+        if not guild:
+            try:
+                guild = await bot_client.fetch_guild(guild_id)
+            except Exception:
+                guild = None
+                
+        if guild:
+            config = await database.get_guild_config(guild_id)
+            staff_role_ids = []
+            for k in ["team_leader_role_id", "moderator_role_id", "trial_moderator_role_id"]:
+                role_val = config.get(k)
+                if role_val:
+                    try:
+                        staff_role_ids.append(int(role_val))
+                    except (ValueError, TypeError):
+                        pass
+                        
+            if staff_role_ids:
+                members = guild.members
+                if not members or len(members) <= 1:
+                    try:
+                        members = [m async for m in guild.fetch_members(limit=None)]
+                    except Exception:
+                        members = []
+                        
+                for m in members:
+                    if any(role.id in staff_role_ids for role in m.roles):
+                        staff_names.append(m.name)
+                        user_cache[m.id] = {"name": m.name, "avatar": m.display_avatar.url if m.display_avatar else None}
+
+    # 2. Fallback: query database for distinct staff IDs who have actioned warnings or requests
+    async with database.aiosqlite.connect(database.DB_NAME) as db:
+        db.row_factory = database.aiosqlite.Row
+        
+        # From warnings
         try:
-            members = [m async for m in guild.fetch_members(limit=None)]
+            cursor = await db.execute("SELECT DISTINCT staff_id FROM warnings WHERE guild_id = ? AND staff_id IS NOT NULL", (guild_id,))
+            rows = await cursor.fetchall()
+            for r in rows:
+                user_data = await get_cached_user(r["staff_id"])
+                if user_data:
+                    staff_names.append(user_data["name"])
         except Exception:
-            members = []
+            pass
             
-    for m in members:
-        if any(role.id in staff_role_ids for role in m.roles):
-            staff_names.append(m.name)
-            user_cache[m.id] = {"name": m.name, "avatar": m.display_avatar.url if m.display_avatar else None}
-            
+        # From paid_requests
+        try:
+            cursor = await db.execute("SELECT DISTINCT actioned_by FROM paid_requests WHERE guild_id = ? AND actioned_by IS NOT NULL", (guild_id,))
+            rows = await cursor.fetchall()
+            for r in rows:
+                user_data = await get_cached_user(r["actioned_by"])
+                if user_data:
+                    staff_names.append(user_data["name"])
+        except Exception:
+            pass
+
     return sorted(list(set(staff_names)))
 
 @app.get("/api/health")
