@@ -222,18 +222,22 @@ class WarningTracker(commands.Cog):
                 inline=False
             )
             
+            dashboard_url = os.getenv("DASHBOARD_URL", "http://localhost:3000")
+            log_link = f"[log](https://{dashboard_url}/guilds/{message.guild.id if message.guild else 0}/logs/warnings/{warn_id})"
+
             if all_attachments:
                 attachments_list = "\n".join([a.url for a in all_attachments])
-                if len(attachments_list) > 1024:
-                    attachments_list = attachments_list[:1020] + "..."
+                if len(attachments_list) > 950:
+                    attachments_list = attachments_list[:950] + "..."
+                attachments_list += f"\n\n{log_link}"
                 log_embed.add_field(name="Attachments", value=attachments_list, inline=False)
-                
-            dashboard_url = os.getenv("DASHBOARD_URL", "http://localhost:3000")
-            log_embed.add_field(
-                name="\u200b",
-                value=f"[log](https://{dashboard_url}/guilds/{message.guild.id if message.guild else 0}/logs/warnings/{warn_id})",
-                inline=False
-            )
+            else:
+                log_embed.add_field(
+                    name="Original Post Content",
+                    value=f"```\n{content_snippet}\n```\n{log_link}",
+                    inline=False
+                )
+
                 
             try:
                 await log_channel.send(embed=log_embed)
@@ -278,6 +282,13 @@ class WarningTracker(commands.Cog):
                         quoted_lines.append(f"> {line}")
                 desc += "\n".join(quoted_lines) + "\n"
                 
+                # Append original content removed
+                desc += "\n**Original Content:**\n"
+                content_display = original_content or "*No text content*"
+                if len(content_display) > 500:
+                    content_display = content_display[:497] + "..."
+                desc += f"```\n{content_display}\n```\n"
+                
                 if is_repeat:
                     desc += "\n⚠️ **Note:** You have received a verbal notice for the same offense in the last 3 months. Repeated offenses may lead to stricter actions.\n"
                 elif count == 2:
@@ -292,7 +303,19 @@ class WarningTracker(commands.Cog):
                 
                 guild_config = await database.get_guild_config(guild.id if guild else 0)
                 if guild_config.get("dm_on_warning", 1):
-                    await message.author.send(embed=embed)
+                    files = []
+                    for att in saved_attachments:
+                        try:
+                            file_path = os.path.join(database.ATTACHMENTS_DIR, att["stored_filename"])
+                            if os.path.exists(file_path):
+                                files.append(discord.File(file_path, filename=att["filename"]))
+                        except Exception as fe:
+                            print(f"Error preparing file for DM: {fe}")
+                            
+                    if files:
+                        await message.author.send(embed=embed, files=files)
+                    else:
+                        await message.author.send(embed=embed)
             except Exception as e:
                 print(f"Could not DM user {message.author.id}: {e}")
 
@@ -422,7 +445,7 @@ class WarningTracker(commands.Cog):
                 user_id=user.id,
                 channel_id=message.channel.id,
                 message_id=message.id,
-                message_content=message.content,
+                message_content="(none)",
                 staff_id=message.author.id,
                 reason=message.content,
                 post_created_at=message.created_at.isoformat(),
@@ -723,7 +746,7 @@ class WarningTracker(commands.Cog):
                         user_id=user.id, 
                         channel_id=message.channel.id, 
                         message_id=message.id, 
-                        message_content=message.content,
+                        message_content="(none)",
                         staff_id=staff_id,
                         reason=message.content,
                         warned_at=warned_at_str,
