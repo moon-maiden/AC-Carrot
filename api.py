@@ -459,9 +459,78 @@ async def purge_warnings(guild_id: int):
 
 @app.delete("/api/guilds/{guild_id}/warnings/{warning_id}")
 async def delete_warning(guild_id: int, warning_id: int):
-    # Pass guild_id if we want to secure it, but for now just revoke_warning
-    await database.revoke_warning(warning_id)
+    # Fetch the warning first
+    warn = await database.get_warning_by_id(warning_id)
+    if not warn:
+        raise HTTPException(status_code=404, detail="Warning not found")
+
+    # Delete from database
+    await database.delete_warning_by_id(warning_id)
+
+    # If the bot is connected, clean up in Discord as well
+    if bot_client:
+        try:
+            # 1. Delete the notice message in #staff-notice
+            channel_id = warn.get('channel_id')
+            message_id = warn.get('message_id')
+            if channel_id and message_id:
+                try:
+                    channel = bot_client.get_channel(channel_id)
+                    if not channel:
+                        channel = await bot_client.fetch_channel(channel_id)
+                    if channel:
+                        msg = await channel.fetch_message(message_id)
+                        await msg.delete()
+                except Exception as e:
+                    print(f"Failed to delete warning notice message: {e}")
+
+            # 2. Send log to staff log channel
+            config = await database.get_guild_config(guild_id)
+            log_channel_id = config.get("staff_log_channel_id") or 0
+            if log_channel_id:
+                try:
+                    import discord
+                    log_channel = bot_client.get_channel(log_channel_id)
+                    if not log_channel:
+                        log_channel = await bot_client.fetch_channel(log_channel_id)
+                    if log_channel:
+                        log_embed = discord.Embed(
+                            title="Log: Verbal Notice Deleted/Revoked (via Dashboard)",
+                            color=discord.Color.red()
+                        )
+                        log_embed.add_field(name="Staff Member", value="Dashboard / Web Admin", inline=True)
+                        log_embed.add_field(name="Target User", value=f"<@{warn['user_id']}> ({warn['user_id']})", inline=True)
+                        log_embed.add_field(name="Warning ID", value=f"#{warning_id}", inline=True)
+                        log_embed.add_field(name="Original Reason", value=warn['reason'][:1000] if warn['reason'] else "None", inline=False)
+                        await log_channel.send(embed=log_embed)
+                except Exception as e:
+                    print(f"Failed to send log embed: {e}")
+
+            # 3. DM the warned user to let them know it was revoked
+            try:
+                import discord
+                target_user = bot_client.get_user(warn['user_id'])
+                if not target_user:
+                    target_user = await bot_client.fetch_user(warn['user_id'])
+                if target_user and not target_user.bot:
+                    guild_name = "server"
+                    guild = bot_client.get_guild(guild_id)
+                    if guild:
+                        guild_name = guild.name
+                    dm_embed = discord.Embed(
+                        title="Verbal Notice Revoked",
+                        description=f"One of your verbal warns (ID #{warning_id}) in the **{guild_name}** has been revoked.",
+                        color=discord.Color.green()
+                    )
+                    await target_user.send(embed=dm_embed)
+            except Exception as e:
+                print(f"Failed to DM user about revoked warning: {e}")
+
+        except Exception as outer_e:
+            print(f"Error handling discord warning removal: {outer_e}")
+
     return {"status": "success"}
+
 
 @app.get("/api/guilds/{guild_id}/reminders")
 async def get_reminders(guild_id: int):
