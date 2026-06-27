@@ -18,6 +18,7 @@ export function TopNav() {
             className="bg-transparent border-none text-teal-300 font-medium text-sm focus:outline-none cursor-pointer hover:text-teal-200 transition-colors appearance-none pr-4 min-w-[120px]"
             style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2314b8a6'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E\")", backgroundRepeat: "no-repeat", backgroundPosition: "right center", backgroundSize: "14px" }}
           >
+            <option value="0">All Servers</option>
             {guilds.map(g => (
               <option key={g.id} value={g.id} className="bg-surface-darker text-white py-2">
                 {g.name}

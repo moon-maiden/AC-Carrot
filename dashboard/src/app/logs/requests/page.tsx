@@ -32,7 +32,7 @@ export default function RequestsPage() {
   const [totalCount, setTotalCount] = useState(0);
 
   const fetchRequests = () => {
-    if (!selectedGuildId || selectedGuildId === "0") return;
+    if (!selectedGuildId) return; // allow "0"
     setLoading(true);
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
     const params = new URLSearchParams({
