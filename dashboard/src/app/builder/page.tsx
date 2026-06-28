@@ -4,6 +4,75 @@ import { useEffect, useState } from "react";
 import { Send, Plus, Trash2, ShieldAlert, Sparkles, MessageSquare, AlertTriangle, Layers } from "lucide-react";
 import { useGuild } from "../../context/GuildContext";
 import { apiFetch } from "../../lib/api";
+import ReactMarkdown from "react-markdown";
+
+const extractImages = (text: string | null): string[] => {
+  if (!text) return [];
+  const imageRegex = /(https?:\/\/\S+\.(?:png|jpe?g|gif|webp|bmp)(?:\?\S*)?|https?:\/\/media\.tenor\.com\/\S+|https?:\/\/\S+\.giphy\.com\/\S+)/gi;
+  const matches = text.match(imageRegex);
+  return matches ? Array.from(new Set(matches)) : [];
+};
+
+function DiscordMarkdown({ content, channels = [], roles = [] }: { content: string | null; channels?: any[]; roles?: any[] }) {
+  if (!content) return null;
+  
+  let processed = content
+    .replace(/<@!?(\d+)>/g, "[mention-user:$1](https://discord.com)")
+    .replace(/<@&(\d+)>/g, "[mention-role:$1](https://discord.com)")
+    .replace(/<#(\d+)>/g, "[mention-channel:$1](https://discord.com)");
+
+  const components: any = {
+    a: ({ href, children }: any) => {
+      const text = children?.[0];
+      if (typeof text === "string") {
+        if (text.startsWith("mention-user:")) {
+          const userId = text.split(":")[1];
+          return (
+            <span className="bg-[#5865f2]/30 text-[#dee0fc] hover:bg-[#5865f2]/40 px-1 py-0.5 rounded font-medium cursor-pointer transition-colors text-[13px] select-none">
+              @{userId}
+            </span>
+          );
+        }
+        if (text.startsWith("mention-role:")) {
+          const roleId = text.split(":")[1];
+          const roleName = roles.find(r => r.id === roleId)?.name || roleId;
+          return (
+            <span className="bg-[#5865f2]/30 text-[#dee0fc] hover:bg-[#5865f2]/40 px-1 py-0.5 rounded font-medium cursor-pointer transition-colors text-[13px] select-none">
+              @{roleName}
+            </span>
+          );
+        }
+        if (text.startsWith("mention-channel:")) {
+          const channelId = text.split(":")[1];
+          const channelName = channels.find(c => c.id === channelId)?.name.replace(/^#/, "") || channelId;
+          return (
+            <span className="bg-[#5865f2]/30 text-[#dee0fc] hover:bg-[#5865f2]/40 px-1 py-0.5 rounded font-medium cursor-pointer transition-colors text-[13px] select-none">
+              #{channelName}
+            </span>
+          );
+        }
+      }
+      return (
+        <a href={href} target="_blank" rel="noreferrer" className="text-[#00a8fc] hover:underline">
+          {children}
+        </a>
+      );
+    },
+    p: ({ children }: any) => <span className="block whitespace-pre-wrap leading-relaxed mb-2 break-words text-[14px]">{children}</span>,
+    code: ({ inline, className, children }: any) => {
+      if (inline) {
+        return <code className="bg-[#2b2d31] text-[#dbdee1] px-1 py-0.5 rounded font-mono text-[13px]">{children}</code>;
+      }
+      return (
+        <pre className="bg-[#1e1f22] border border-black/30 p-2.5 rounded font-mono text-xs text-[#dbdee1] overflow-x-auto whitespace-pre-wrap my-2.5">
+          <code>{children}</code>
+        </pre>
+      );
+    }
+  };
+
+  return <ReactMarkdown components={components}>{processed}</ReactMarkdown>;
+}
 
 type Channel = {
   id: string;
@@ -339,12 +408,12 @@ export default function MessageBuilderPage() {
                   }}
                   className="w-full bg-surface-darker border border-teal-950/60 rounded-lg text-sm text-white px-3 py-2 focus:outline-none focus:border-teal-500/40 animate-none"
                 >
+                  <option value="custom">⚙️ Custom Channel/Thread ID...</option>
                   {channels.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name}
                     </option>
                   ))}
-                  <option value="custom">⚙️ Custom Channel/Thread ID...</option>
                 </select>
               </div>
 
@@ -687,7 +756,14 @@ export default function MessageBuilderPage() {
 
                 {/* Text Content */}
                 {messageText ? (
-                  <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-[#dbdee1] break-words">{messageText}</p>
+                  <div className="whitespace-pre-wrap text-[15px] leading-relaxed text-[#dbdee1] break-words">
+                    <DiscordMarkdown content={messageText} channels={channels} roles={roles} />
+                    {extractImages(messageText).map((url, i) => (
+                      <div key={i} className="mt-2 rounded-lg overflow-hidden max-w-full max-h-64 border border-white/5">
+                        <img src={url} alt="GIF preview" className="max-w-full max-h-64 object-contain" />
+                      </div>
+                    ))}
+                  </div>
                 ) : (
                   embeds.length === 0 && <p className="text-xs text-[#949ba4] italic">Message content is empty...</p>
                 )}
@@ -714,7 +790,9 @@ export default function MessageBuilderPage() {
                         <h4 className="font-semibold text-white text-base mb-1.5 break-words">{emb.title}</h4>
                       )}
                       {emb.description && (
-                        <p className="whitespace-pre-wrap text-[14px] text-[#dbdee1] leading-relaxed break-words">{emb.description}</p>
+                        <div className="whitespace-pre-wrap text-[14px] text-[#dbdee1] leading-relaxed break-words">
+                          <DiscordMarkdown content={emb.description} channels={channels} roles={roles} />
+                        </div>
                       )}
 
                       {/* Fields Grid */}

@@ -6,6 +6,74 @@ import ReactMarkdown from "react-markdown";
 import { useGuild } from "../../context/GuildContext";
 import { apiFetch } from "../../lib/api";
 
+const extractImages = (text: string | null): string[] => {
+  if (!text) return [];
+  const imageRegex = /(https?:\/\/\S+\.(?:png|jpe?g|gif|webp|bmp)(?:\?\S*)?|https?:\/\/media\.tenor\.com\/\S+|https?:\/\/\S+\.giphy\.com\/\S+)/gi;
+  const matches = text.match(imageRegex);
+  return matches ? Array.from(new Set(matches)) : [];
+};
+
+function DiscordMarkdown({ content, channels = [], roles = [] }: { content: string | null; channels?: any[]; roles?: any[] }) {
+  if (!content) return null;
+  
+  let processed = content
+    .replace(/<@!?(\d+)>/g, "[mention-user:$1](https://discord.com)")
+    .replace(/<@&(\d+)>/g, "[mention-role:$1](https://discord.com)")
+    .replace(/<#(\d+)>/g, "[mention-channel:$1](https://discord.com)");
+
+  const components: any = {
+    a: ({ href, children }: any) => {
+      const text = children?.[0];
+      if (typeof text === "string") {
+        if (text.startsWith("mention-user:")) {
+          const userId = text.split(":")[1];
+          return (
+            <span className="bg-[#5865f2]/30 text-[#dee0fc] hover:bg-[#5865f2]/40 px-1 py-0.5 rounded font-medium cursor-pointer transition-colors text-[13px] select-none">
+              @{userId}
+            </span>
+          );
+        }
+        if (text.startsWith("mention-role:")) {
+          const roleId = text.split(":")[1];
+          const roleName = roles.find(r => r.id === roleId)?.name || roleId;
+          return (
+            <span className="bg-[#5865f2]/30 text-[#dee0fc] hover:bg-[#5865f2]/40 px-1 py-0.5 rounded font-medium cursor-pointer transition-colors text-[13px] select-none">
+              @{roleName}
+            </span>
+          );
+        }
+        if (text.startsWith("mention-channel:")) {
+          const channelId = text.split(":")[1];
+          const channelName = channels.find(c => c.id === channelId)?.name.replace(/^#/, "") || channelId;
+          return (
+            <span className="bg-[#5865f2]/30 text-[#dee0fc] hover:bg-[#5865f2]/40 px-1 py-0.5 rounded font-medium cursor-pointer transition-colors text-[13px] select-none">
+              #{channelName}
+            </span>
+          );
+        }
+      }
+      return (
+        <a href={href} target="_blank" rel="noreferrer" className="text-[#00a8fc] hover:underline">
+          {children}
+        </a>
+      );
+    },
+    p: ({ children }: any) => <p className="whitespace-pre-wrap leading-relaxed mb-2 break-words text-[14px]">{children}</p>,
+    code: ({ inline, className, children }: any) => {
+      if (inline) {
+        return <code className="bg-[#2b2d31] text-[#dbdee1] px-1 py-0.5 rounded font-mono text-[13px]">{children}</code>;
+      }
+      return (
+        <pre className="bg-[#1e1f22] border border-black/30 p-2.5 rounded font-mono text-xs text-[#dbdee1] overflow-x-auto whitespace-pre-wrap my-2.5">
+          <code>{children}</code>
+        </pre>
+      );
+    }
+  };
+
+  return <ReactMarkdown components={components}>{processed}</ReactMarkdown>;
+}
+
 type ChatbotButton = {
   label: string;
   emoji: string | null;
@@ -581,8 +649,15 @@ export default function ChatbotPage() {
                     <div>
                       <h4 className="font-bold text-white text-[15px] mb-2">🥕 Carrot Assistant</h4>
                       {activeMenu.text ? (
-                        <p className="whitespace-pre-wrap text-[14px] text-[#dbdee1] leading-relaxed break-words">{activeMenu.text}</p>
-                      ) : (
+                      <div className="whitespace-pre-wrap text-[14px] text-[#dbdee1] leading-relaxed break-words">
+                        <DiscordMarkdown content={activeMenu.text} />
+                        {extractImages(activeMenu.text).map((url, i) => (
+                          <div key={i} className="mt-2 rounded-lg overflow-hidden max-w-full max-h-64 border border-white/5">
+                            <img src={url} alt="attachment preview" className="max-w-full max-h-64 object-contain" />
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
                         <p className="text-xs text-[#949ba4] italic">Response embed description is empty...</p>
                       )}
                     </div>
@@ -628,7 +703,12 @@ export default function ChatbotPage() {
                   </div>
 
                   <div className="bg-[#2b2d31] p-3 rounded-lg border border-[#e85a29]/10 max-w-[480px] break-words whitespace-pre-wrap text-[14px]">
-                    <ReactMarkdown>{botMessageReply}</ReactMarkdown>
+                    <DiscordMarkdown content={botMessageReply} />
+                    {extractImages(botMessageReply).map((url, i) => (
+                      <div key={i} className="mt-2 rounded-lg overflow-hidden max-w-full max-h-64 border border-white/5">
+                        <img src={url} alt="GIF preview" className="max-w-full max-h-64 object-contain" />
+                      </div>
+                    ))}
                   </div>
 
                   <div className="text-[12px] text-[#949ba4] font-medium flex items-center gap-1.5 select-none">
