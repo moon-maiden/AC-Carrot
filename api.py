@@ -116,7 +116,7 @@ async def get_user_access_level(guild_id: int, user_id: str = Depends(get_discor
         
     config = await database.get_guild_config(guild_id)
     if config:
-        role_ids = [r.id for r in member.roles]
+        role_ids = [str(r.id) for r in member.roles]
         if config.get("team_leader_role_id") in role_ids:
             permission_cache[cache_key] = ("admin", now + 120)
             return "admin"
