@@ -45,7 +45,9 @@ export default function SettingsPage() {
   const [reasons, setReasons] = useState<VerbalReason[]>([]);
   const [expandedReasons, setExpandedReasons] = useState<number[]>([]);
 
-  const { selectedGuildId } = useGuild();
+  const { guilds, selectedGuildId } = useGuild();
+  const currentGuild = guilds.find(g => g.id === selectedGuildId);
+  const isViewOnly = currentGuild?.access_level === "view";
 
   useEffect(() => {
     if (!selectedGuildId || selectedGuildId === "0") {
@@ -198,7 +200,7 @@ export default function SettingsPage() {
             Server Configuration
           </h2>
           <button 
-            onClick={handleSave} 
+            onClick={saveSettings} 
             disabled={saving || isViewOnly}
             className="bg-teal-500 hover:bg-teal-600 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors"
           >

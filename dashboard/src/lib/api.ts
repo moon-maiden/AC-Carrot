@@ -10,8 +10,8 @@ export async function apiFetch(url: string, options: RequestInit = {}) {
   const session = await getSession();
   const headers = new Headers(options.headers || {});
   
-  if (session?.accessToken) {
-    headers.set("Authorization", `Bearer ${session.accessToken}`);
+  if ((session as any)?.accessToken) {
+    headers.set("Authorization", `Bearer ${(session as any).accessToken}`);
   }
   
   return fetch(url, { ...options, headers });

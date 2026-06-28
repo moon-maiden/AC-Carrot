@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 
 import { ShieldAlert, Search, Trash2, RefreshCw, Clock, MessageSquare, ExternalLink, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Filter } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import ReactMarkdown from "react-markdown";
 import { useGuild } from "../../../context/GuildContext";
 import { apiFetch } from "../../../lib/api";
 
