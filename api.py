@@ -68,20 +68,25 @@ async def log_dashboard_action(guild_id: int, user_id: str, action: str):
         except Exception:
             pass
 
-async def get_discord_user_id(authorization: str = Header(None)) -> str:
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+async def get_discord_user_id(request: Request):
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        print(f"[AUTH DEBUG] Missing or invalid Authorization header: {auth_header}")
+        raise HTTPException(status_code=401, detail="Unauthorized")
     
-    token = authorization.split("Bearer ")[1]
+    token = auth_header.split(" ")[1]
     
     now = time.time()
     if token in token_cache and token_cache[token][1] > now:
         return token_cache[token][0]
-        
+    
     async with aiohttp.ClientSession() as session:
         async with session.get("https://discord.com/api/users/@me", headers={"Authorization": f"Bearer {token}"}) as resp:
             if resp.status != 200:
-                raise HTTPException(status_code=401, detail="Invalid Discord token")
+                print(f"[AUTH DEBUG] Discord API rejected token with status {resp.status}")
+                text = await resp.text()
+                print(f"[AUTH DEBUG] Discord API response: {text}")
+                raise HTTPException(status_code=401, detail="Invalid token")
             data = await resp.json()
             user_id = data.get("id")
             token_cache[token] = (user_id, now + 600) # 10 minutes cache
@@ -114,16 +119,31 @@ async def get_user_access_level(guild_id: int, user_id: str = Depends(get_discor
         permission_cache[cache_key] = ("admin", now + 120)
         return "admin"
         
+    # Now check bot roles vs config
     config = await database.get_guild_config(guild_id)
     if config:
         role_ids = [str(r.id) for r in member.roles]
-        if config.get("team_leader_role_id") in role_ids:
+        
+        print(f"[DEBUG] User {user_id} roles in {guild_id}: {role_ids}")
+        print(f"[DEBUG] Configured Team Leader: {config.get('team_leader_role_id')} | Mod: {config.get('moderator_role_id')} | Trial: {config.get('trial_moderator_role_id')}")
+        
+        team_leader_id = str(config.get("team_leader_role_id"))
+        mod_role_id = str(config.get("moderator_role_id"))
+        trial_mod_id = str(config.get("trial_moderator_role_id"))
+        
+        # Check team leader
+        if team_leader_id in role_ids:
+            print(f"[DEBUG] User granted admin via team_leader_role_id")
             permission_cache[cache_key] = ("admin", now + 120)
             return "admin"
-        if config.get("moderator_role_id") in role_ids or config.get("trial_moderator_role_id") in role_ids:
+            
+        # Check moderator/trial
+        if mod_role_id in role_ids or trial_mod_id in role_ids:
+            print(f"[DEBUG] User granted view via mod/trial role")
             permission_cache[cache_key] = ("view", now + 120)
             return "view"
             
+    print(f"[DEBUG] User {user_id} denied access to {guild_id}. Returned none.")
     permission_cache[cache_key] = ("none", now + 120)
     return "none"
 
@@ -895,6 +915,9 @@ async def delete_warning(guild_id: int, warning_id: int, access_level: str = Dep
     warn = await database.get_warning_by_id(warning_id)
     if not warn:
         raise HTTPException(status_code=404, detail="Warning not found")
+        
+    if warn.get('guild_id') != guild_id and guild_id != 0:
+        raise HTTPException(status_code=403, detail="Forbidden: This warning does not belong to your server.")
 
     # Delete from database
     await database.delete_warning_by_id(warning_id)
@@ -993,6 +1016,17 @@ async def get_reminders(guild_id: int, access_level: str = Depends(requires_view
 @app.delete("/api/guilds/{guild_id}/reminders/{reminder_id}")
 async def delete_reminder(guild_id: int, reminder_id: int, access_level: str = Depends(requires_admin_access), user_id: str = Depends(get_discord_user_id)):
     async with database.aiosqlite.connect(database.DB_NAME) as db:
+        db.row_factory = database.aiosqlite.Row
+        cursor = await db.execute("SELECT * FROM reminders WHERE id = ?", (reminder_id,))
+        reminder = await cursor.fetchone()
+        if not reminder:
+            raise HTTPException(status_code=404, detail="Reminder not found")
+            
+        if bot_client:
+            channel = bot_client.get_channel(reminder['channel_id'])
+            if channel and channel.guild.id != guild_id and guild_id != 0:
+                raise HTTPException(status_code=403, detail="Forbidden: Reminder belongs to another server.")
+
         await db.execute("DELETE FROM reminders WHERE id = ?", (reminder_id,))
         await log_dashboard_action(guild_id, user_id, f"deleted reminder ID #{reminder_id}.")
         await db.commit()

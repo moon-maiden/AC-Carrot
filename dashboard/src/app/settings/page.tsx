@@ -399,14 +399,16 @@ export default function SettingsPage() {
                             >
                               {isExpanded ? "CLOSE" : "EDIT"}
                             </button>
-                            <button 
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); removeReason(idx); }} 
-                              className="text-red-400 hover:text-red-300 p-2 bg-red-500/5 hover:bg-red-500/15 border border-red-500/10 hover:border-red-500/20 rounded-lg transition-all duration-200" 
-                              title="Delete Reason"
-                            >
-                              <X className="w-4 h-4" />
-                            </button>
+                            {isViewOnly ? null : (
+                              <button 
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); removeReason(idx); }} 
+                                className="text-red-400 hover:text-red-300 p-2 bg-red-500/5 hover:bg-red-500/15 border border-red-500/10 hover:border-red-500/20 rounded-lg transition-all duration-200" 
+                                title="Delete Reason"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
                         </div>
 
@@ -418,20 +420,22 @@ export default function SettingsPage() {
                                 <label className="text-xs text-gray-400 font-medium tracking-wide uppercase">Reason Key / ID</label>
                                 <input 
                                   type="text" 
+                                  disabled={isViewOnly}
                                   value={reason.id} 
                                   onChange={e => handleReasonChange(idx, "id", e.target.value)} 
                                   placeholder="e.g. underpricing"
-                                  className="w-full bg-surface-dark border border-white/5 rounded-lg text-sm text-white px-3 py-2 focus:outline-none focus:border-teal-500/40 focus:ring-1 focus:ring-teal-500/40 transition-all font-mono" 
+                                  className="w-full bg-surface-dark border border-white/5 rounded-lg text-sm text-white px-3 py-2 focus:outline-none focus:border-teal-500/40 focus:ring-1 focus:ring-teal-500/40 transition-all font-mono disabled:opacity-50 disabled:cursor-not-allowed" 
                                 />
                               </div>
                               <div className="space-y-1.5">
                                 <label className="text-xs text-gray-400 font-medium tracking-wide uppercase">Dropdown Label</label>
                                 <input 
                                   type="text" 
+                                  disabled={isViewOnly}
                                   value={reason.label} 
                                   onChange={e => handleReasonChange(idx, "label", e.target.value)} 
                                   placeholder="e.g. Underpricing"
-                                  className="w-full bg-surface-dark border border-white/5 rounded-lg text-sm text-white px-3 py-2 focus:outline-none focus:border-teal-500/40 focus:ring-1 focus:ring-teal-500/40 transition-all" 
+                                  className="w-full bg-surface-dark border border-white/5 rounded-lg text-sm text-white px-3 py-2 focus:outline-none focus:border-teal-500/40 focus:ring-1 focus:ring-teal-500/40 transition-all disabled:opacity-50 disabled:cursor-not-allowed" 
                                 />
                               </div>
                             </div>
@@ -454,10 +458,11 @@ export default function SettingsPage() {
                               </div>
 
                               <textarea 
+                                disabled={isViewOnly}
                                 value={reason.text} 
                                 onChange={e => handleReasonChange(idx, "text", e.target.value)} 
                                 placeholder="Details sent to the user when warned..."
-                                className="w-full bg-surface-dark border border-white/5 rounded-lg text-sm text-white px-3 py-2 min-h-[110px] focus:outline-none focus:border-teal-500/40 focus:ring-1 focus:ring-teal-500/40 transition-all font-sans leading-relaxed" 
+                                className="w-full bg-surface-dark border border-white/5 rounded-lg text-sm text-white px-3 py-2 min-h-[110px] focus:outline-none focus:border-teal-500/40 focus:ring-1 focus:ring-teal-500/40 transition-all font-sans leading-relaxed disabled:opacity-50 disabled:cursor-not-allowed" 
                               />
                             </div>
                           </div>
@@ -467,12 +472,14 @@ export default function SettingsPage() {
                   })}
                 </div>
                 
-                <button 
-                  onClick={addReason} 
-                  className="mt-4 text-teal-400 hover:text-teal-300 bg-teal-500/5 hover:bg-teal-500/10 border border-teal-500/10 hover:border-teal-500/25 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 flex items-center gap-2"
-                >
-                  <Plus className="w-4 h-4" /> Add New Reason
-                </button>
+                {!isViewOnly && (
+                  <button 
+                    onClick={addReason} 
+                    className="mt-4 text-teal-400 hover:text-teal-300 bg-teal-500/5 hover:bg-teal-500/10 border border-teal-500/10 hover:border-teal-500/25 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 flex items-center gap-2"
+                  >
+                    <Plus className="w-4 h-4" /> Add New Reason
+                  </button>
+                )}
               </div>
 
             </div>
