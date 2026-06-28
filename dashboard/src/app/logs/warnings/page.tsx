@@ -29,6 +29,7 @@ type Warning = {
   reason: string | null;
   post_created_at: string | null;
   attachments?: Attachment[];
+  guild_id?: number | string;
 };
 
 function WarningsPageContent() {
@@ -52,8 +53,9 @@ function WarningsPageContent() {
   useEffect(() => {
     if (warningIdParam) {
       const warningId = parseInt(warningIdParam, 10);
-      if (!isNaN(warningId)) {
-        apiFetch(`${apiUrl}/api/warnings/${warningId}`)
+      const guildId = guildIdParam || selectedGuildId || "0";
+      if (!isNaN(warningId) && guildId && guildId !== "0") {
+        apiFetch(`${apiUrl}/api/guilds/${guildId}/warnings/${warningId}`)
           .then(res => {
             if (res.ok) return res.json();
             throw new Error("Warning not found");
@@ -514,7 +516,7 @@ function WarningsPageContent() {
               <div>
                 <div className="text-gray-500 text-xs font-medium uppercase tracking-wider mb-2 flex justify-between items-center">
                   <span>Original Post Content</span>
-                  <a href={`https://discord.com/channels/0/${selectedWarning.channel_id}`} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-teal-400 hover:text-teal-300 transition-colors">
+                  <a href={`discord://discord.com/channels/${(selectedWarning.guild_id || selectedGuildId) && (selectedWarning.guild_id || selectedGuildId) !== "0" ? (selectedWarning.guild_id || selectedGuildId) : "@me"}/${selectedWarning.channel_id}/${selectedWarning.message_id}`} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-teal-400 hover:text-teal-300 transition-colors">
                     <ExternalLink className="w-3 h-3" /> Go to channel
                   </a>
                 </div>

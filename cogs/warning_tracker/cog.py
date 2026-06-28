@@ -80,7 +80,8 @@ class WarningTracker(commands.Cog):
         staff_role_ids = [config.get("team_leader_role_id"), config.get("moderator_role_id"), config.get("trial_moderator_role_id")]
         
         # Check role
-        if interaction.user.id != 255174440005009408 and not any(role.id in staff_role_ids for role in interaction.user.roles):
+        is_admin = interaction.user.guild_permissions.administrator if interaction.guild else False
+        if interaction.user.id != 255174440005009408 and not is_admin and not any(role.id in staff_role_ids for role in interaction.user.roles):
             await interaction.followup.send("You do not have the required staff role to use this command.", ephemeral=True)
             return
 
@@ -160,11 +161,23 @@ class WarningTracker(commands.Cog):
         warn_message_id = notice_msg.id if notice_msg else 0
 
         
+        # Extract text content (checking snapshots for forwarded messages)
+        resolved_content = original_content
+        if not resolved_content and hasattr(message, "message_snapshots") and message.message_snapshots:
+            snapshot_contents = []
+            for snapshot in message.message_snapshots:
+                snap_txt = snapshot.content or "*No text content*"
+                snapshot_contents.append(f"(Forwarded Message) {snap_txt}")
+            resolved_content = "\n".join(snapshot_contents)
+
+        if not resolved_content:
+            resolved_content = "*No text content*"
+
         warn_id = await database.add_warning(
             user_id=message.author.id,
             channel_id=warn_channel_id,
             message_id=warn_message_id,
-            message_content=original_content,
+            message_content=resolved_content,
             staff_id=interaction.user.id,
             reason=reason,
             post_created_at=message.created_at.isoformat(),
@@ -201,17 +214,7 @@ class WarningTracker(commands.Cog):
                 reason_text = reason_text[:1021] + "..."
             log_embed.add_field(name="Rejection Reason", value=reason_text, inline=False)
             
-            # Extract text content (checking snapshots for forwarded messages)
-            content_snippet = original_content
-            if not content_snippet and hasattr(message, "message_snapshots") and message.message_snapshots:
-                snapshot_contents = []
-                for i, snapshot in enumerate(message.message_snapshots, 1):
-                    snap_txt = snapshot.content or "*No text content*"
-                    snapshot_contents.append(f"[Forwarded Message #{i}]: {snap_txt}")
-                content_snippet = "\n".join(snapshot_contents)
-            
-            if not content_snippet:
-                content_snippet = "*No text content*"
+            content_snippet = resolved_content
 
             if len(content_snippet) > 800:
                 content_snippet = content_snippet[:800] + "..."
@@ -312,7 +315,7 @@ class WarningTracker(commands.Cog):
                             print(f"Error preparing file for DM: {fe}")
                             
                     # Send original content and files as a separate embed (in markdown)
-                    content_display = original_content or "*No text content*"
+                    content_display = resolved_content
                     if len(content_display) > 2048:
                         content_display = content_display[:2045] + "..."
                         
@@ -460,12 +463,21 @@ class WarningTracker(commands.Cog):
                     
             attachments_data = json.dumps(saved_attachments) if saved_attachments else None
 
+            original_content = "(none)"
+            if hasattr(message, "message_snapshots") and message.message_snapshots:
+                snapshot_contents = []
+                for snapshot in message.message_snapshots:
+                    snap_txt = snapshot.content or "*No text content*"
+                    snapshot_contents.append(f"(Forwarded Message) {snap_txt}")
+                if snapshot_contents:
+                    original_content = "\n\n".join(snapshot_contents)
+
             # Add warning to database (saving message content)
             warn_id = await database.add_warning(
                 user_id=user.id,
                 channel_id=message.channel.id,
                 message_id=message.id,
-                message_content="(none)",
+                message_content=original_content,
                 staff_id=message.author.id,
                 reason=message.content,
                 post_created_at=message.created_at.isoformat(),
@@ -494,9 +506,12 @@ class WarningTracker(commands.Cog):
                 dashboard_url = os.getenv("DASHBOARD_URL", "http://localhost:3000")
                 log_link = f"[log](https://{dashboard_url}/guilds/{message.guild.id if message.guild else 0}/logs/warnings/{warn_id})"
                 
+                reason_desc = original_content
+                if len(reason_desc) > 1000:
+                    reason_desc = reason_desc[:997] + "..."
                 log_embed.add_field(
                     name="Original Post Content",
-                    value=f"```\n(none)\n```\n{log_link}",
+                    value=f"```\n{reason_desc}\n```\n{log_link}",
                     inline=False
                 )
                 
@@ -646,9 +661,10 @@ class WarningTracker(commands.Cog):
         notice_channel_id = config.get("staff_notice_channel_id") or 0
         log_channel_id = config.get("staff_log_channel_id") or 0
         
-        # Restrict command to users with the specific staff roles (bypassed for developer)
+        # Restrict command to users with the specific staff roles (bypassed for developer and admins)
+        is_admin = ctx.author.guild_permissions.administrator if ctx.guild else False
         if ctx.author.id != 255174440005009408:
-            if not ctx.guild or not any(role.id in staff_role_ids for role in ctx.author.roles):
+            if not ctx.guild or (not is_admin and not any(role.id in staff_role_ids for role in ctx.author.roles)):
                 await ctx.send("You do not have the required staff role to use this command.")
                 return
 
@@ -721,9 +737,10 @@ class WarningTracker(commands.Cog):
         staff_role_ids = [config.get("team_leader_role_id"), config.get("moderator_role_id"), config.get("trial_moderator_role_id")]
         notice_channel_id = config.get("staff_notice_channel_id") or 0
         
-        # Restrict command to users with the specific staff roles (bypassed for developer)
+        # Restrict command to users with the specific staff roles (bypassed for developer and admins)
+        is_admin = ctx.author.guild_permissions.administrator if ctx.guild else False
         if ctx.author.id != 255174440005009408:
-            if not ctx.guild or not any(role.id in staff_role_ids for role in ctx.author.roles):
+            if not ctx.guild or (not is_admin and not any(role.id in staff_role_ids for role in ctx.author.roles)):
                 await ctx.send("You do not have the required staff role to use this command.")
                 return
 
@@ -827,8 +844,9 @@ class WarningTracker(commands.Cog):
         config = await database.get_guild_config(interaction.guild_id or 0)
         team_leader_role_id = config.get("team_leader_role_id") or 0
         
-        if interaction.user.id != 255174440005009408 and not any(role.id == team_leader_role_id for role in interaction.user.roles):
-            await interaction.response.send_message("Only Team Leaders and the superuser can manage verbal reasons.", ephemeral=True)
+        is_admin = interaction.user.guild_permissions.administrator if interaction.guild else False
+        if interaction.user.id != 255174440005009408 and not is_admin and not any(role.id == team_leader_role_id for role in interaction.user.roles):
+            await interaction.response.send_message("Only Team Leaders, Server Administrators, and the superuser can manage verbal reasons.", ephemeral=True)
             return
 
         if action == "add":

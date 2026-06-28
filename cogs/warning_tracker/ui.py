@@ -62,7 +62,8 @@ class RemovalReasonSelect(discord.ui.Select):
         config = await database.get_guild_config(interaction.guild_id or 0)
         staff_role_ids = [config.get("team_leader_role_id"), config.get("moderator_role_id"), config.get("trial_moderator_role_id")]
         
-        if interaction.user.id != 255174440005009408 and not any(role.id in staff_role_ids for role in interaction.user.roles):
+        is_admin = interaction.user.guild_permissions.administrator if interaction.guild else False
+        if interaction.user.id != 255174440005009408 and not is_admin and not any(role.id in staff_role_ids for role in interaction.user.roles):
             await interaction.response.send_message("You do not have the required staff role to perform this action.", ephemeral=True)
             return
 

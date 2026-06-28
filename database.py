@@ -237,6 +237,13 @@ async def init_db():
         ''')
 
         await db.execute('''
+            CREATE TABLE IF NOT EXISTS chatbot_settings (
+                guild_id INTEGER PRIMARY KEY,
+                dm_prompt_button INTEGER DEFAULT 0
+            )
+        ''')
+
+        await db.execute('''
             CREATE TABLE IF NOT EXISTS chatbot_buttons (
                 guild_id INTEGER,
                 menu_id TEXT,
@@ -264,6 +271,22 @@ async def init_db():
                 ("art_in_chats", "Art in chats", "posting art/writing work unrelated to current conversation topic. Please refer to channel pins for local ruling, as all art and writing should be shared to <#369833248240566282> or <#616268995246424097> instead.", 0)
             ]
             await db.executemany("INSERT INTO verbal_reasons (id, label, text, guild_id) VALUES (?, ?, ?, ?)", default_reasons)
+
+        # Import chatbot config from JSON if database is empty
+        cursor = await db.execute("SELECT COUNT(*) FROM chatbot_menus")
+        chatbot_count = (await cursor.fetchone())[0]
+        if chatbot_count == 0:
+            try:
+                import json
+                import os
+                config_path = "chatbot_config.json"
+                if os.path.exists(config_path):
+                    with open(config_path, "r", encoding="utf-8") as f:
+                        config_data = json.load(f)
+                    await save_chatbot_config(0, config_data)
+                    print("Imported chatbot_config.json into database as global default (guild_id=0).")
+            except Exception as e:
+                print(f"Error importing default chatbot config: {e}")
 
         await db.commit()
 
@@ -731,5 +754,131 @@ async def get_due_reminders() -> list:
 async def delete_reminder(reminder_id: int):
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute('DELETE FROM reminders WHERE id = ?', (reminder_id,))
+        await db.commit()
+
+
+# --- Chatbot Config Methods ---
+
+async def get_chatbot_config(guild_id: int) -> dict:
+    """Fetch the chatbot configuration for a guild from the database.
+    If none exists, returns default template structure.
+    """
+    async with aiosqlite.connect(DB_NAME) as db:
+        db.row_factory = aiosqlite.Row
+        
+        # 1. Fetch all menus for this guild
+        cursor = await db.execute("SELECT menu_id, response_text FROM chatbot_menus WHERE guild_id = ?", (guild_id,))
+        menu_rows = await cursor.fetchall()
+        
+        # 2. Fetch all buttons for this guild
+        cursor = await db.execute(
+            "SELECT menu_id, button_index, label, emoji, action, target_content FROM chatbot_buttons WHERE guild_id = ? ORDER BY menu_id, button_index", 
+            (guild_id,)
+        )
+        button_rows = await cursor.fetchall()
+        
+        # 3. Fetch chatbot settings
+        cursor = await db.execute("SELECT dm_prompt_button FROM chatbot_settings WHERE guild_id = ?", (guild_id,))
+        settings_row = await cursor.fetchone()
+        dm_prompt = settings_row["dm_prompt_button"] == 1 if settings_row else False
+        
+    # Build buttons map by menu_id
+    buttons_by_menu = {}
+    for r in button_rows:
+        menu_id = r["menu_id"]
+        if menu_id not in buttons_by_menu:
+            buttons_by_menu[menu_id] = []
+            
+        # Reconstruct JSON format
+        btn_dict = {
+            "label": r["label"],
+            "emoji": r["emoji"],
+            "action": r["action"]
+        }
+        if r["action"] == "menu":
+            btn_dict["target"] = r["target_content"]
+        else:
+            btn_dict["text"] = r["target_content"]
+            
+        buttons_by_menu[menu_id].append(btn_dict)
+
+    # Reconstruct JSON format configuration
+    config = {
+        "main_menu": {
+            "text": "Hello! I'm Carrot and I can help you with answering with questions you might have! \n\nTo get started, please select from provided options:",
+            "buttons": []
+        },
+        "menus": {},
+        "dm_prompt_button": dm_prompt
+    }
+    
+    for r in menu_rows:
+        menu_id = r["menu_id"]
+        menu_text = r["response_text"]
+        menu_buttons = buttons_by_menu.get(menu_id, [])
+        
+        if menu_id == "main_menu":
+            config["main_menu"] = {
+                "text": menu_text,
+                "buttons": menu_buttons
+            }
+        else:
+            config["menus"][menu_id] = {
+                "text": menu_text,
+                "buttons": menu_buttons
+            }
+            
+    # If no custom configuration exists in the database for this guild, return defaults
+    if not menu_rows and guild_id != 0:
+        return await get_chatbot_config(0)
+        
+    return config
+
+async def save_chatbot_config(guild_id: int, config: dict):
+    """Save the chatbot configuration for a guild to the database."""
+    async with aiosqlite.connect(DB_NAME) as db:
+        # Delete existing menus and buttons for this guild
+        await db.execute("DELETE FROM chatbot_menus WHERE guild_id = ?", (guild_id,))
+        await db.execute("DELETE FROM chatbot_buttons WHERE guild_id = ?", (guild_id,))
+        
+        # Save chatbot settings
+        dm_prompt = 1 if config.get("dm_prompt_button", False) else 0
+        await db.execute(
+            "INSERT OR REPLACE INTO chatbot_settings (guild_id, dm_prompt_button) VALUES (?, ?)",
+            (guild_id, dm_prompt)
+        )
+        
+        # Save main menu
+        main_menu = config.get("main_menu", {})
+        main_text = main_menu.get("text", "Hello!")
+        await db.execute(
+            "INSERT INTO chatbot_menus (guild_id, menu_id, response_text) VALUES (?, ?, ?)",
+            (guild_id, "main_menu", main_text)
+        )
+        
+        # Save main menu buttons
+        for idx, btn in enumerate(main_menu.get("buttons", [])):
+            target_content = btn.get("target") if btn.get("action") == "menu" else btn.get("text", "")
+            await db.execute(
+                "INSERT INTO chatbot_buttons (guild_id, menu_id, button_index, label, emoji, action, target_content) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (guild_id, "main_menu", idx, btn.get("label"), btn.get("emoji"), btn.get("action"), target_content)
+            )
+            
+        # Save sub menus
+        menus = config.get("menus", {})
+        for menu_id, menu_data in menus.items():
+            menu_text = menu_data.get("text", "...")
+            await db.execute(
+                "INSERT INTO chatbot_menus (guild_id, menu_id, response_text) VALUES (?, ?, ?)",
+                (guild_id, menu_id, menu_text)
+            )
+            
+            for idx, btn in enumerate(menu_data.get("buttons", [])):
+                target_content = btn.get("target") if btn.get("action") == "menu" else btn.get("text", "")
+                await db.execute(
+                    "INSERT INTO chatbot_buttons (guild_id, menu_id, button_index, label, emoji, action, target_content) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (guild_id, menu_id, idx, btn.get("label"), btn.get("emoji"), btn.get("action"), target_content)
+                )
+                
         await db.commit()
 

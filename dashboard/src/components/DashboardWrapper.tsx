@@ -10,14 +10,27 @@ import { LoginButton } from "./LoginButton";
 
 export function DashboardWrapper({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(true);
   const pathname = usePathname();
   const { guilds, selectedGuildId, setSelectedGuildId } = useGuild();
+  const currentGuild = guilds.find((g) => g.id === selectedGuildId);
+  const isAdmin = currentGuild?.access_level === "admin";
+
+  const toggleSidebar = () => {
+    if (typeof window !== "undefined" && window.innerWidth < 768) {
+      setSidebarOpen(!sidebarOpen);
+    } else {
+      setDesktopSidebarOpen(!desktopSidebarOpen);
+    }
+  };
 
   const navLinks = [
     { href: "/overview", label: "Overview", icon: LayoutDashboard },
     { href: "/logs/warnings", label: "Logs", icon: ShieldAlert },
-    { href: "/builder", label: "Message Builder", icon: PenTool },
-    { href: "/chatbot", label: "Chatbot", icon: Bot },
+    ...(isAdmin ? [
+      { href: "/builder", label: "Message Builder", icon: PenTool },
+      { href: "/chatbot", label: "Chatbot", icon: Bot },
+    ] : []),
     { href: "/settings", label: "Guild Settings", icon: Settings },
   ];
 
@@ -33,9 +46,10 @@ export function DashboardWrapper({ children }: { children: React.ReactNode }) {
 
       {/* Sidebar (Mobile drawer and Desktop sidebar) */}
       <aside className={`
-        fixed inset-y-0 left-0 w-64 glass-panel border-r border-teal-900/30 flex flex-col z-50 transition-transform duration-300 transform 
-        md:translate-x-0 md:static md:z-10
-        ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
+        fixed inset-y-0 left-0 w-64 glass-panel border-r border-teal-900/30 flex flex-col z-50 transition-all duration-300 transform 
+        md:static md:z-10
+        ${sidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}
+        ${desktopSidebarOpen ? "md:w-64 md:opacity-100" : "md:w-0 md:opacity-0 md:border-r-0 overflow-hidden"}
       `}>
         <div className="h-16 flex items-center justify-between px-6 border-b border-teal-900/30">
           <h1 className="font-black text-xl tracking-tighter bg-gradient-to-br from-teal-400 to-emerald-600 bg-clip-text text-transparent">
@@ -84,8 +98,8 @@ export function DashboardWrapper({ children }: { children: React.ReactNode }) {
           <div className="flex items-center gap-3">
             {/* Hamburger button */}
             <button 
-              onClick={() => setSidebarOpen(true)}
-              className="p-2 -ml-2 text-gray-400 hover:text-white hover:bg-white/5 rounded-lg md:hidden"
+              onClick={toggleSidebar}
+              className="p-2 -ml-2 text-gray-400 hover:text-white hover:bg-white/5 rounded-lg"
             >
               <Menu className="w-6 h-6" />
             </button>

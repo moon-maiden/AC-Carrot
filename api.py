@@ -266,19 +266,20 @@ async def get_warnings(
     sort_key: str = "id", 
     sort_dir: str = "desc", 
     search: str = "", 
-    staff: str = ""
+    staff: str = "",
+    access_level: str = Depends(requires_view_access)
 ):
     async with database.aiosqlite.connect(database.DB_NAME) as db:
         db.row_factory = database.aiosqlite.Row
         
         if guild_id == 0:
             cursor = await db.execute('''
-                SELECT id, user_id, warned_at, channel_id, message_id, message_content, staff_id, reason, post_created_at, attachments 
+                SELECT id, user_id, warned_at, channel_id, message_id, message_content, staff_id, reason, post_created_at, attachments, guild_id 
                 FROM warnings
             ''')
         else:
             cursor = await db.execute('''
-                SELECT id, user_id, warned_at, channel_id, message_id, message_content, staff_id, reason, post_created_at, attachments 
+                SELECT id, user_id, warned_at, channel_id, message_id, message_content, staff_id, reason, post_created_at, attachments, guild_id 
                 FROM warnings
                 WHERE guild_id = ?
             ''', (guild_id,))
@@ -364,6 +365,11 @@ async def get_warnings(
     base_url = str(request.base_url).rstrip('/')
     import json
     for w in page_warnings:
+        # Convert IDs to string to avoid JavaScript float precision loss
+        for k in ['user_id', 'channel_id', 'message_id', 'staff_id', 'guild_id']:
+            if w.get(k) is not None:
+                w[k] = str(w[k])
+                
         # Resolve attachments URL
         if w.get('attachments'):
             try:
@@ -414,6 +420,12 @@ async def get_single_warning(request: Request, guild_id: int, warning_id: int, a
     if not warn:
         raise HTTPException(status_code=404, detail="Warning not found")
         
+    warn = dict(warn)
+    # Convert IDs to string to avoid JavaScript float precision loss
+    for k in ['user_id', 'channel_id', 'message_id', 'staff_id', 'guild_id']:
+        if warn.get(k) is not None:
+            warn[k] = str(warn[k])
+            
     # Resolve usernames if bot is connected
     if bot_client:
         user_id = warn.get('user_id')
@@ -493,7 +505,8 @@ async def get_paid_requests(
     sort_dir: str = "desc",
     search: str = "",
     status: str = "",
-    staff: str = ""
+    staff: str = "",
+    access_level: str = Depends(requires_view_access)
 ):
     async with database.aiosqlite.connect(database.DB_NAME) as db:
         db.row_factory = database.aiosqlite.Row
@@ -597,6 +610,11 @@ async def get_paid_requests(
 
     # Full API fetch/resolution for only the paginated slice
     for r in page_requests:
+        # Convert IDs to string to avoid JavaScript float precision loss
+        for k in ['user_id', 'actioned_by', 'guild_id']:
+            if r.get(k) is not None:
+                r[k] = str(r[k])
+        
         # Full resolve user (can make fetch_user request if not in memory)
         user_data = await get_cached_user(r['user_id'])
         if user_data:
@@ -1031,3 +1049,336 @@ async def delete_reminder(guild_id: int, reminder_id: int, access_level: str = D
         await log_dashboard_action(guild_id, user_id, f"deleted reminder ID #{reminder_id}.")
         await db.commit()
     return {"status": "success"}
+
+
+# --- Chatbot Config Schemas & Routes ---
+
+class ChatbotButtonData(BaseModel):
+    label: str
+    emoji: Optional[str] = None
+    action: str  # "message" or "menu"
+    target: Optional[str] = None
+    text: Optional[str] = None
+
+class ChatbotMenuData(BaseModel):
+    text: str
+    buttons: List[ChatbotButtonData]
+
+class ChatbotConfigUpdate(BaseModel):
+    main_menu: ChatbotMenuData
+    menus: Optional[dict] = None
+    dm_prompt_button: Optional[bool] = False
+
+@app.get("/api/guilds/{guild_id}/chatbot")
+async def get_chatbot(guild_id: int, access_level: str = Depends(requires_view_access)):
+    config = await database.get_chatbot_config(guild_id)
+    return config
+
+@app.post("/api/guilds/{guild_id}/chatbot")
+async def update_chatbot(guild_id: int, data: ChatbotConfigUpdate, access_level: str = Depends(requires_admin_access), user_id: str = Depends(get_discord_user_id)):
+    config_dict = data.model_dump()
+    await database.save_chatbot_config(guild_id, config_dict)
+    
+    if bot_client:
+        chatbot_cog = bot_client.get_cog("Chatbot")
+        if chatbot_cog:
+            await chatbot_cog.refresh_cache(guild_id)
+            
+    return {"status": "success"}
+
+
+# --- Message Builder Schemas & Routes ---
+
+class EmbedFieldData(BaseModel):
+    name: str
+    value: str
+    inline: bool = True
+
+class EmbedData(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    color: Optional[str] = None
+    image: Optional[str] = None
+    footer: Optional[str] = None
+    fields: Optional[List[EmbedFieldData]] = None
+
+class ReactionRoleData(BaseModel):
+    emoji: str
+    role_id: str
+
+class MessageBuilderSend(BaseModel):
+    channel_id: str
+    message_id: Optional[str] = None
+    message_text: Optional[str] = None
+    embeds: Optional[List[EmbedData]] = None
+    thread_name: Optional[str] = None
+    reaction_roles: Optional[List[ReactionRoleData]] = None
+    suppress_notifications: Optional[bool] = False
+
+@app.get("/api/guilds/{guild_id}/channels")
+async def get_guild_channels(guild_id: int, access_level: str = Depends(requires_admin_access)):
+    if not bot_client:
+        return {"channels": []}
+    guild = bot_client.get_guild(guild_id)
+    if not guild:
+        raise HTTPException(status_code=404, detail="Guild not found or bot not in guild.")
+    
+    channels = []
+    # Add text channels
+    for c in guild.text_channels:
+        channels.append({"id": str(c.id), "name": f"#{c.name}"})
+    # Add active threads
+    for t in guild.threads:
+        parent_name = f" ({t.parent.name})" if t.parent else ""
+        channels.append({"id": str(t.id), "name": f"🧵 {t.name}{parent_name}"})
+        
+    return {"channels": channels}
+
+@app.get("/api/guilds/{guild_id}/roles")
+async def get_guild_roles(guild_id: int, access_level: str = Depends(requires_admin_access)):
+    if not bot_client:
+        return {"roles": []}
+    guild = bot_client.get_guild(guild_id)
+    if not guild:
+        raise HTTPException(status_code=404, detail="Guild not found or bot not in guild.")
+    
+    roles = []
+    for r in guild.roles:
+        if r.is_default():
+            continue
+        if r.managed:
+            continue
+        roles.append({"id": str(r.id), "name": r.name})
+    return {"roles": roles}
+
+@app.post("/api/guilds/{guild_id}/builder/send")
+async def send_builder_message(guild_id: int, data: MessageBuilderSend, access_level: str = Depends(requires_admin_access), user_id: str = Depends(get_discord_user_id)):
+    if not bot_client:
+        raise HTTPException(status_code=503, detail="Discord bot is not running.")
+        
+    guild = bot_client.get_guild(guild_id)
+    if not guild:
+        raise HTTPException(status_code=404, detail="Guild not found.")
+        
+    channel = guild.get_channel(int(data.channel_id)) or guild.get_thread(int(data.channel_id))
+    if not channel:
+        try:
+            channel = await guild.fetch_channel(int(data.channel_id))
+        except discord.HTTPException:
+            try:
+                channel = await guild.fetch_thread(int(data.channel_id))
+            except discord.HTTPException:
+                raise HTTPException(status_code=404, detail="Channel or Thread not found in this server.")
+            
+    embeds = []
+    if data.embeds:
+        for eb in data.embeds[:10]: # Max 10 embeds allowed by Discord
+            has_title = bool(eb.title)
+            has_desc = bool(eb.description)
+            has_color = bool(eb.color)
+            has_image = bool(eb.image)
+            has_footer = bool(eb.footer)
+            has_fields = bool(eb.fields)
+            
+            if has_title or has_desc or has_color or has_image or has_footer or has_fields:
+                color_val = None
+                if eb.color:
+                    try:
+                        color_val = int(eb.color.strip("#"), 16)
+                    except ValueError:
+                        raise HTTPException(status_code=400, detail="Invalid color format. Use hex format like #FF5555.")
+                        
+                embed = discord.Embed(
+                    title=eb.title or None,
+                    description=eb.description or None,
+                    color=color_val
+                )
+                if eb.image:
+                    embed.set_image(url=eb.image)
+                if eb.footer:
+                    embed.set_footer(text=eb.footer)
+                if eb.fields:
+                    for f in eb.fields:
+                        embed.add_field(name=f.name, value=f.value, inline=f.inline)
+                embeds.append(embed)
+
+    if not data.message_text and not embeds:
+        raise HTTPException(status_code=400, detail="Cannot send or edit an empty message. Provide text content or at least one embed.")
+
+    try:
+        # Edit Mode
+        if data.message_id and data.message_id.strip():
+            try:
+                msg = await channel.fetch_message(int(data.message_id.strip()))
+                if msg.author.id != bot_client.user.id:
+                    raise HTTPException(status_code=400, detail="Cannot edit a message sent by another user or bot.")
+                
+                await msg.edit(content=data.message_text or None, embeds=embeds or None)
+                
+                if data.reaction_roles:
+                    for rr in data.reaction_roles:
+                        try:
+                            await msg.add_reaction(rr.emoji)
+                            await database.add_reaction_role(msg.id, guild_id, rr.emoji, int(rr.role_id))
+                        except Exception as re:
+                            print(f"Failed to add reaction role: {re}")
+                            
+                return {"status": "success", "message_id": str(msg.id)}
+            except discord.NotFound:
+                raise HTTPException(status_code=404, detail="Message not found in the selected channel.")
+            except discord.Forbidden:
+                raise HTTPException(status_code=403, detail="Bot is missing permission to edit or fetch this message.")
+        
+        # Send Mode (New Message)
+        flags = discord.MessageFlags()
+        if data.suppress_notifications:
+            flags.suppress_notifications = True
+        
+        send_kwargs = {"content": data.message_text or None, "embeds": embeds or None}
+        if flags.value != 0:
+            send_kwargs["flags"] = flags
+            
+        msg = await channel.send(**send_kwargs)
+        
+        if data.thread_name:
+            try:
+                await msg.create_thread(name=data.thread_name)
+            except Exception as te:
+                print(f"Failed to create thread for builder message: {te}")
+                
+        if data.reaction_roles:
+            for rr in data.reaction_roles:
+                try:
+                    await msg.add_reaction(rr.emoji)
+                    await database.add_reaction_role(msg.id, guild_id, rr.emoji, int(rr.role_id))
+                except Exception as re:
+                    print(f"Failed to add reaction role: {re}")
+                    
+        return {"status": "success", "message_id": str(msg.id)}
+    except discord.Forbidden:
+        raise HTTPException(status_code=403, detail="Bot is missing Send Messages permission in the selected channel.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to send/edit message: {e}")
+
+@app.get("/api/guilds/{guild_id}/messages/{message_id}")
+async def get_builder_message(
+    guild_id: int, 
+    message_id: int, 
+    channel_id: Optional[str] = None,
+    access_level: str = Depends(requires_admin_access)
+):
+    if not bot_client:
+        raise HTTPException(status_code=503, detail="Discord bot is not running.")
+    guild = bot_client.get_guild(guild_id)
+    if not guild:
+        raise HTTPException(status_code=404, detail="Guild not found.")
+        
+    msg = None
+    target_channel = None
+    
+    # 1. Check cache first
+    cached_msg = discord.utils.get(bot_client.cached_messages, id=message_id)
+    if cached_msg and cached_msg.guild and cached_msg.guild.id == guild_id:
+        msg = cached_msg
+        target_channel = cached_msg.channel
+        
+    # 2. Check channel_id hint if provided
+    if not msg and channel_id:
+        try:
+            cid = int(channel_id)
+            c = guild.get_channel(cid) or guild.get_thread(cid)
+            if not c:
+                c = await guild.fetch_channel(cid)
+            if c:
+                msg = await c.fetch_message(message_id)
+                target_channel = c
+        except Exception:
+            pass
+            
+    # 3. Check guild config channels (highest likelihood of bot messages)
+    if not msg:
+        config = await database.get_guild_config(guild_id)
+        config_cids = []
+        if config:
+            for k in ["staff_notice_channel_id", "staff_commands_channel_id", "staff_log_channel_id", "submit_channel_id", "review_channel_id", "approved_channel_id", "approval_log_channel_id"]:
+                val = config.get(k)
+                if val:
+                    config_cids.append(int(val))
+                    
+        for cid in config_cids:
+            try:
+                c = guild.get_channel(cid) or guild.get_thread(cid)
+                if not c:
+                    c = await guild.fetch_channel(cid)
+                if c:
+                    msg = await c.fetch_message(message_id)
+                    target_channel = c
+                    break
+            except Exception:
+                continue
+                
+    # 4. Fallback search (concurrently check all channels)
+    if not msg:
+        import asyncio
+        candidates = list(guild.text_channels) + list(guild.threads)
+        checked_ids = set()
+        if channel_id: 
+            try:
+                checked_ids.add(int(channel_id))
+            except Exception:
+                pass
+        if config_cids: 
+            checked_ids.update(config_cids)
+        candidates = [c for c in candidates if c.id not in checked_ids]
+        
+        async def check_c(chan):
+            try:
+                m = await chan.fetch_message(message_id)
+                return (chan, m)
+            except Exception:
+                return None
+                
+        results = await asyncio.gather(*(check_c(c) for c in candidates), return_exceptions=True)
+        for res in results:
+            if res and isinstance(res, tuple):
+                target_channel, msg = res
+                break
+                
+    if not msg or not target_channel:
+        raise HTTPException(status_code=404, detail="Message not found anywhere in this server.")
+        
+    embeds_data = []
+    for emb in msg.embeds:
+        color_hex = f"#{emb.color.value:06x}" if emb.color else "#5865F2"
+        fields = []
+        for f in emb.fields:
+            fields.append({
+                "name": f.name,
+                "value": f.value,
+                "inline": f.inline
+            })
+        embeds_data.append({
+            "title": emb.title or "",
+            "description": emb.description or "",
+            "color": color_hex,
+            "image": emb.image.url if emb.image else "",
+            "footer": emb.footer.text if emb.footer else "",
+            "fields": fields
+        })
+        
+    db_rrs = await database.get_reaction_roles_for_message(message_id)
+    reaction_roles = []
+    if db_rrs:
+        for rr in db_rrs:
+            reaction_roles.append({
+                "emoji": rr["emoji"],
+                "role_id": str(rr["role_id"])
+            })
+            
+    return {
+        "channel_id": str(target_channel.id),
+        "message_text": msg.content or "",
+        "embeds": embeds_data,
+        "reaction_roles": reaction_roles,
+        "thread_name": msg.thread.name if msg.thread else ""
+    }

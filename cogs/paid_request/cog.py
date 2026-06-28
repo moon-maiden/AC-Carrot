@@ -332,6 +332,50 @@ class PaidRequest(commands.Cog):
             if not req:
                 await interaction.response.send_message("Request not found.", ephemeral=True)
                 return
+                
+            guild = interaction.guild
+            member = guild.get_member(req['user_id'])
+            if not member and guild:
+                try:
+                    member = await guild.fetch_member(req['user_id'])
+                except discord.HTTPException:
+                    member = None
+            
+            if not member:
+                await interaction.response.defer(ephemeral=True)
+                await database.update_paid_request_status(req_id, 'invalid', actioned_by=interaction.user.id)
+                config = await database.get_guild_config(interaction.guild_id or 0)
+                log_channel_id = config.get("approval_log_channel_id") or 0
+                log_channel = self.bot.get_channel(log_channel_id)
+                if log_channel:
+                    log_desc = (
+                        f"```\n"
+                        f"ID: {req_id}\n"
+                        f"Budget: {req['budget']}\n"
+                        f"Type: {req['sfw_nsfw']}\n"
+                        f"Payment: {req['payment_method']}\n"
+                        f"Use: {req['use_case']}\n"
+                        f"Content: {req['content']}\n"
+                        f"```"
+                    )
+                    log_embed = discord.Embed(
+                        title="Log: Request Invalidated (User Left)",
+                        description=log_desc,
+                        color=discord.Color.dark_grey()
+                    )
+                    log_embed.add_field(name="Request From", value=f"Unknown [{req['user_id']}]", inline=False)
+                    log_embed.add_field(name="Actioned By", value=f"{interaction.user.name} [{interaction.user.id}]", inline=False)
+                    now_str = datetime.now().strftime('%d %B %Y %H:%M')
+                    log_embed.add_field(name="Timestamp", value=f"`{now_str}`", inline=False)
+                    log_embed.add_field(name="ID", value=str(req_id), inline=False)
+                    await log_channel.send(embed=log_embed)
+                try:
+                    await interaction.message.delete()
+                except discord.HTTPException:
+                    pass
+                await interaction.followup.send("User is no longer in the server. Request marked as Invalid.", ephemeral=True)
+                return
+                
             await interaction.response.send_modal(RejectReasonModal(req_id, req['user_id'], interaction.message))
             
         elif custom_id.startswith("dmclose_") or custom_id.startswith("dmfulfill_"):
@@ -387,11 +431,44 @@ class PaidRequest(commands.Cog):
         
         guild = interaction.guild
         member = guild.get_member(req['user_id'])
-        if not member:
+        if not member and guild:
             try:
                 member = await guild.fetch_member(req['user_id'])
             except discord.HTTPException:
                 member = None
+
+        if not member:
+            await database.update_paid_request_status(req_id, 'invalid', actioned_by=interaction.user.id)
+            log_channel_id = config.get("approval_log_channel_id") or 0
+            log_channel = self.bot.get_channel(log_channel_id)
+            if log_channel:
+                log_desc = (
+                    f"```\n"
+                    f"ID: {req_id}\n"
+                    f"Budget: {req['budget']}\n"
+                    f"Type: {req['sfw_nsfw']}\n"
+                    f"Payment: {req['payment_method']}\n"
+                    f"Use: {req['use_case']}\n"
+                    f"Content: {req['content']}\n"
+                    f"```"
+                )
+                log_embed = discord.Embed(
+                    title="Log: Request Invalidated (User Left)",
+                    description=log_desc,
+                    color=discord.Color.dark_grey()
+                )
+                log_embed.add_field(name="Request From", value=f"Unknown [{req['user_id']}]", inline=False)
+                log_embed.add_field(name="Actioned By", value=f"{interaction.user.name} [{interaction.user.id}]", inline=False)
+                now_str = datetime.now().strftime('%d %B %Y %H:%M')
+                log_embed.add_field(name="Timestamp", value=f"`{now_str}`", inline=False)
+                log_embed.add_field(name="ID", value=str(req_id), inline=False)
+                await log_channel.send(embed=log_embed)
+            try:
+                await interaction.message.delete()
+            except discord.HTTPException:
+                pass
+            await interaction.followup.send("User is no longer in the server. Request marked as Invalid.", ephemeral=True)
+            return
 
         joined_str = "Unknown"
         display_name = f"User ID {req['user_id']}"

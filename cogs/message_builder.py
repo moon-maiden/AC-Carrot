@@ -445,9 +445,10 @@ class MessageBuilder(commands.Cog):
     @app_commands.command(name="send_as", description="Send a message as Carrot")
     @app_commands.describe(message="The message to send")
     async def send_as(self, interaction: discord.Interaction, message: str):
-        # Allow TEAM LEADERS or Superuser
+        # Allow TEAM LEADERS, administrators, or Superuser
+        is_admin = interaction.user.guild_permissions.administrator if interaction.guild else False
         is_team_leader = interaction.guild and any(role.id == self.team_leader_role_id for role in getattr(interaction.user, 'roles', []))
-        if not (is_team_leader or interaction.user.id == 255174440005009408):
+        if not (is_team_leader or is_admin or interaction.user.id == 255174440005009408):
             await interaction.response.send_message("❌ You do not have permission to use this command.", ephemeral=True)
             return
 
