@@ -14,7 +14,7 @@ export const authOptions: NextAuthOptions = {
       if (account) {
         token.accessToken = account.access_token;
         if (profile) {
-          token.id = profile.id;
+          token.id = (profile as any).id;
         }
       }
       return token;
