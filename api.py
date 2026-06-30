@@ -115,7 +115,13 @@ async def get_user_access_level(guild_id: int, user_id: str = Depends(get_discor
         except Exception:
             return "none"
             
-    if member.guild_permissions.administrator or member.guild_permissions.manage_guild:
+    is_owner = False
+    try:
+        is_owner = member.id == guild.owner_id or await bot_client.is_owner(member)
+    except Exception as e:
+        print(f"[DEBUG] Error checking ownership: {e}")
+
+    if member.guild_permissions.administrator or member.guild_permissions.manage_guild or is_owner:
         permission_cache[cache_key] = ("admin", now + 120)
         return "admin"
         
