@@ -391,7 +391,7 @@ async def get_guild_config(guild_id: int):
         db.row_factory = aiosqlite.Row
         
         if guild_id == 0:
-            cursor = await db.execute("SELECT * FROM guild_configs LIMIT 1")
+            cursor = await db.execute("SELECT * FROM guild_configs WHERE guild_id = 0")
         else:
             cursor = await db.execute("SELECT * FROM guild_configs WHERE guild_id = ?", (guild_id,))
             

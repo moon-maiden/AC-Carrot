@@ -364,6 +364,14 @@ class PaidRequest(commands.Cog):
                 await interaction.response.send_message("Request not found.", ephemeral=True)
                 return
                 
+            if req['status'] != 'pending':
+                await interaction.response.send_message(f"This request has already been actioned (Status: {req['status']}).", ephemeral=True)
+                try:
+                    await interaction.message.delete()
+                except discord.HTTPException:
+                    pass
+                return
+                
             guild = interaction.guild
             member = guild.get_member(req['user_id'])
             if not member and guild:
@@ -454,6 +462,14 @@ class PaidRequest(commands.Cog):
         req = await database.get_paid_request(req_id)
         if not req:
             await interaction.followup.send("Request not found.", ephemeral=True)
+            return
+            
+        if req['status'] != 'pending':
+            await interaction.followup.send(f"This request has already been actioned (Status: {req['status']}).", ephemeral=True)
+            try:
+                await interaction.message.delete()
+            except discord.HTTPException:
+                pass
             return
 
         config = await database.get_guild_config(interaction.guild_id or 0)
@@ -661,7 +677,7 @@ class PaidRequest(commands.Cog):
         review_channel = self.bot.get_channel(review_channel_id)
         if review_channel and req['staff_review_msg_id']:
             try:
-                msg = await review_channel.fetch_message(req['staff_review_msg_id'])
+                msg = review_channel.get_partial_message(req['staff_review_msg_id'])
                 await msg.delete()
             except discord.HTTPException:
                 pass

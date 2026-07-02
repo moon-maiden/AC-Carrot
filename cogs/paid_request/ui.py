@@ -311,7 +311,7 @@ class PaidRequestModal(discord.ui.Modal):
             if is_edit:
                 if self.review_msg_id:
                     try:
-                        msg = await review_channel.fetch_message(self.review_msg_id)
+                        msg = review_channel.get_partial_message(self.review_msg_id)
                         await msg.edit(embed=embed, view=view)
                     except discord.HTTPException:
                         msg = await review_channel.send(embed=embed, view=view)
