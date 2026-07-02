@@ -26,7 +26,7 @@ class PaidRequest(commands.Cog):
             user_id = req['user_id']
             req_id = req['request_id']
             
-            guild_id = req.get('guild_id')
+            guild_id = req['guild_id'] if 'guild_id' in req.keys() else None
             guild = self.bot.get_guild(guild_id) if guild_id else None
             member = guild.get_member(user_id) if guild else None
             if guild and not member:
@@ -48,7 +48,7 @@ class PaidRequest(commands.Cog):
                         approved_channel = await self.bot.fetch_channel(approved_channel_id)
                     except discord.HTTPException:
                         pass
-                if approved_channel and req.get('approved_msg_id'):
+                if approved_channel and ('approved_msg_id' in req.keys() and req['approved_msg_id']):
                     try:
                         msg = await approved_channel.fetch_message(req['approved_msg_id'])
                         await msg.delete()

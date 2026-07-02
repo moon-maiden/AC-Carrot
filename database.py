@@ -660,7 +660,8 @@ async def get_paid_request(request_id: int):
     async with aiosqlite.connect(DB_NAME) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute('SELECT * FROM paid_requests WHERE request_id = ?', (request_id,))
-        return await cursor.fetchone()
+        row = await cursor.fetchone()
+        return dict(row) if row else None
 
 async def update_paid_request_review_msg(request_id: int, msg_id: int):
     async with aiosqlite.connect(DB_NAME) as db:
@@ -697,7 +698,8 @@ async def get_last_submitted_request(user_id: int):
             ORDER BY created_at DESC
             LIMIT 1
         ''', (user_id,))
-        return await cursor.fetchone()
+        row = await cursor.fetchone()
+        return dict(row) if row else None
 
 async def get_paid_requests_for_reminders(age_days: float = 30.0) -> list:
     async with aiosqlite.connect(DB_NAME) as db:
