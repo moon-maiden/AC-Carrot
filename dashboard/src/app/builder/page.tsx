@@ -726,11 +726,11 @@ export default function MessageBuilderPage() {
 
                           <div className="md:col-span-5 space-y-1">
                             <label className="text-[10px] text-gray-500 uppercase font-semibold">Value</label>
-                            <input
-                              type="text"
+                            <textarea
+                              rows={2}
                               value={field.value}
                               onChange={(e) => handleUpdateField(idx, "value", e.target.value)}
-                              className="w-full bg-surface-dark border border-teal-950/60 rounded-lg text-xs text-white px-2.5 py-1.5 focus:outline-none"
+                              className="w-full bg-surface-dark border border-teal-950/60 rounded-lg text-xs text-white px-2.5 py-1.5 focus:outline-none resize-y"
                             />
                           </div>
 
