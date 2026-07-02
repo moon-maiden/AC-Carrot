@@ -8,13 +8,15 @@ from .helpers import sanitize_input
 class PaidRequestModal(discord.ui.Modal):
     def __init__(self, request_id: int = None, budget_val: str = None, sfw_nsfw_val: str = None,
                  payment_method_val: str = None, use_case_val: str = None, content_val: str = None,
-                 review_msg_id: int = None, dm_msg: discord.Message = None, budget_error: str = None):
+                 review_msg_id: int = None, dm_msg: discord.Message = None, budget_error: str = None,
+                 guild_id: int = None):
         title = "Edit Request" if request_id else "Create Request"
         super().__init__(title=title)
         
         self.request_id = request_id
         self.review_msg_id = review_msg_id
         self.dm_msg = dm_msg
+        self.guild_id = guild_id
         
         budget_label = "Budget (AUD/USD/CAD/etc.)"
         if budget_error:
@@ -65,9 +67,16 @@ class PaidRequestModal(discord.ui.Modal):
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        config = await database.get_guild_config(interaction.guild_id or 0)
         
         is_edit = self.request_id is not None
+        guild_id = self.guild_id or interaction.guild_id
+        if is_edit and not guild_id:
+            req = await database.get_paid_request(self.request_id)
+            if req and req.get('guild_id'):
+                guild_id = req['guild_id']
+                
+        config = await database.get_guild_config(guild_id or 0)
+        
         budget_val = sanitize_input(self.budget.value, 100)
         sfw_nsfw_val = sanitize_input(self.sfw_nsfw.value, 50)
         payment_method_val = sanitize_input(self.payment_method.value, 100)
@@ -99,7 +108,8 @@ class PaidRequestModal(discord.ui.Modal):
                     content_val=self.content.value,
                     review_msg_id=self.review_msg_id,
                     dm_msg=self.dm_msg,
-                    budget_error=error_label
+                    budget_error=error_label,
+                    guild_id=guild_id
                 ))
             
             fix_btn.callback = fix_callback
@@ -134,7 +144,8 @@ class PaidRequestModal(discord.ui.Modal):
                     use_case_val=self.use_case.value,
                     content_val=self.content.value,
                     review_msg_id=self.review_msg_id,
-                    dm_msg=self.dm_msg
+                    dm_msg=self.dm_msg,
+                    guild_id=guild_id
                 ))
             
             fix_btn.callback = fix_callback
@@ -186,7 +197,8 @@ class PaidRequestModal(discord.ui.Modal):
                         content_val=self.content.value,
                         review_msg_id=self.review_msg_id,
                         dm_msg=self.dm_msg,
-                        budget_error=error_label
+                        budget_error=error_label,
+                        guild_id=guild_id
                     ))
                 
                 fix_btn.callback = fix_callback
@@ -219,7 +231,7 @@ class PaidRequestModal(discord.ui.Modal):
                 )
                 return
             req_id = await database.create_paid_request(
-                interaction.guild_id,
+                guild_id,
                 interaction.user.id,
                 budget_val,
                 sfw_nsfw_val,
@@ -343,7 +355,8 @@ class RejectReasonModal(discord.ui.Modal, title="Reason for Rejection"):
         submitter_str = f"{submitter.name} [{self.user_id}]" if submitter else f"Unknown [{self.user_id}]"
 
         # Log it
-        config = await database.get_guild_config(interaction.guild_id or 0)
+        guild_id = (req['guild_id'] if req else None) or interaction.guild_id
+        config = await database.get_guild_config(guild_id or 0)
         log_channel_id = config.get("approval_log_channel_id") or 0
         log_channel = interaction.client.get_channel(log_channel_id)
         if log_channel and req:
