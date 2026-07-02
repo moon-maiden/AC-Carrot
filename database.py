@@ -558,13 +558,13 @@ async def get_warnings_last_3_months(user_id: int, guild_id: int = None):
     async with aiosqlite.connect(DB_NAME) as db:
         if guild_id:
             cursor = await db.execute('''
-                SELECT id, COALESCE(reason, message_content, 'No reason provided'), warned_at FROM warnings
+                SELECT id, reason, warned_at FROM warnings
                 WHERE user_id = ? AND (guild_id = ? OR guild_id IS NULL) AND warned_at >= datetime('now', '-3 months')
                 ORDER BY warned_at DESC
             ''', (user_id, guild_id))
         else:
             cursor = await db.execute('''
-                SELECT id, COALESCE(reason, message_content, 'No reason provided'), warned_at FROM warnings
+                SELECT id, reason, warned_at FROM warnings
                 WHERE user_id = ? AND warned_at >= datetime('now', '-3 months')
                 ORDER BY warned_at DESC
             ''', (user_id,))
