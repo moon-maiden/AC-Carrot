@@ -438,6 +438,55 @@ class MessageBuilder(commands.Cog):
         self.ctx_menu = app_commands.ContextMenu(name="Edit Bot Message", callback=self.edit_bot_message_ctx)
         self.bot.tree.add_command(self.ctx_menu)
         self.team_leader_role_id = int(os.getenv("TEAM_LEADER_ROLE_ID", "1080143284162269215"))
+        self.role_queue = asyncio.Queue()
+        self.bot.loop.create_task(self.process_role_queue())
+
+    async def process_role_queue(self):
+        await self.bot.wait_until_ready()
+        while not self.bot.is_closed():
+            try:
+                member, role_to_add, roles_to_remove, channel, message_id, emojis_to_remove = await self.role_queue.get()
+                
+                # 1. Remove previous roles
+                if roles_to_remove:
+                    actual_roles_to_remove = [r for r in roles_to_remove if r in member.roles]
+                    if actual_roles_to_remove:
+                        try:
+                            await member.remove_roles(*actual_roles_to_remove)
+                        except Exception as e:
+                            print(f"[Queue Worker] Error removing roles: {e}")
+                            
+                # 2. Add new role
+                if role_to_add and role_to_add not in member.roles:
+                    try:
+                        await member.add_roles(role_to_add)
+                    except discord.errors.Forbidden:
+                        if channel:
+                            await channel.send(
+                                f"❌ **Permission Error:** I cannot assign the `{role_to_add.name}` role. Please ensure my role is placed *above* `{role_to_add.name}` in the server settings.",
+                                delete_after=10
+                            )
+                    except Exception as e:
+                        if channel:
+                            await channel.send(f"❌ **Error adding role:** {e}", delete_after=10)
+
+                # 3. Clean up other reactions (single choice UI sync)
+                if emojis_to_remove and message_id and channel:
+                    try:
+                        msg = await channel.fetch_message(message_id)
+                        for emoji in emojis_to_remove:
+                            try:
+                                await msg.remove_reaction(emoji, member)
+                            except Exception:
+                                pass
+                    except Exception as e:
+                        print(f"[Queue Worker] Error clearing reactions: {e}")
+
+                self.role_queue.task_done()
+                await asyncio.sleep(0.1)
+            except Exception as ex:
+                print(f"[Queue Worker] Error in task processing: {ex}")
+                await asyncio.sleep(1)
 
     def cog_unload(self):
         self.bot.tree.remove_command(self.ctx_menu.name, type=self.ctx_menu.type)
@@ -508,7 +557,6 @@ class MessageBuilder(commands.Cog):
         )
         view.preview_message = await interaction.original_response()
 
-    # --- Listeners ---
     @commands.Cog.listener()
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
         if payload.user_id == self.bot.user.id: return
@@ -516,12 +564,27 @@ class MessageBuilder(commands.Cog):
         if not rrs: return
         
         channel = self.bot.get_channel(payload.channel_id)
-        matched = False
+        if not channel:
+            try: channel = await self.bot.fetch_channel(payload.channel_id)
+            except discord.HTTPException: pass
+                
+        # Get settings
+        settings = await database.get_message_reaction_role_settings(payload.message_id)
+        single_choice = settings.get("single_choice", 0) == 1
+        
+        guild = self.bot.get_guild(payload.guild_id)
+        if not guild: return
+        
+        member = payload.member
+        if not member:
+            try: member = await guild.fetch_member(payload.user_id)
+            except discord.HTTPException: return
+
+        matched_rr = None
         for rr in rrs:
             db_emoji = rr['emoji'].replace('\ufe0f', '')
             payload_emoji = str(payload.emoji).replace('\ufe0f', '')
             
-            # Extract just the ID if it's a custom emoji to be absolutely safe
             db_id = re.search(r':([0-9]+)>?$', db_emoji)
             pl_id = re.search(r':([0-9]+)>?$', payload_emoji)
             
@@ -532,34 +595,32 @@ class MessageBuilder(commands.Cog):
                 is_match = True
                 
             if is_match:
-                matched = True
-                guild = self.bot.get_guild(payload.guild_id)
-                if guild:
-                    member = payload.member
-                    if not member:
-                        try: member = await guild.fetch_member(payload.user_id)
-                        except discord.HTTPException: pass
-                            
-                    role = guild.get_role(rr['role_id'])
-                    if member and role:
-                        try: 
-                            await member.add_roles(role)
-                        except discord.errors.Forbidden: 
-                            if channel: await channel.send(f"❌ **Permission Error:** I cannot assign the `{role.name}` role. Please ensure I have the **Manage Roles** permission and my role is placed *above* `{role.name}` in the server settings.", delete_after=10)
-                        except Exception as e: 
-                            if channel: await channel.send(f"❌ **Error adding role:** {e}", delete_after=10)
-                    else:
-                        if channel: await channel.send(f"❌ **Error:** Could not find the role or member! (Role exists: {role is not None})", delete_after=10)
+                matched_rr = rr
+                break
 
-        # Uncomment for deep debugging if needed
-        # if not matched and channel:
-        #    await channel.send(f"DEBUG: No emoji match found. Payload: {payload_emoji}. DB: {[r['emoji'] for r in rrs]}", delete_after=15)
+        if matched_rr:
+            role_to_add = guild.get_role(matched_rr['role_id'])
+            roles_to_remove = []
+            emojis_to_remove = []
+            
+            if single_choice:
+                # Remove all other roles that are configured for this message
+                for rr in rrs:
+                    if rr['role_id'] != matched_rr['role_id']:
+                        other_role = guild.get_role(rr['role_id'])
+                        if other_role:
+                            roles_to_remove.append(other_role)
+                            emojis_to_remove.append(rr['emoji'])
+            
+            await self.role_queue.put((member, role_to_add, roles_to_remove, channel, payload.message_id, emojis_to_remove))
 
     @commands.Cog.listener()
     async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent):
         if payload.user_id == self.bot.user.id: return
         rrs = await database.get_reaction_roles_for_message(payload.message_id)
         if not rrs: return
+        
+        matched_rr = None
         for rr in rrs:
             db_emoji = rr['emoji'].replace('\ufe0f', '')
             payload_emoji = str(payload.emoji).replace('\ufe0f', '')
@@ -574,17 +635,20 @@ class MessageBuilder(commands.Cog):
                 is_match = True
                 
             if is_match:
-                guild = self.bot.get_guild(payload.guild_id)
-                if guild:
-                    member = guild.get_member(payload.user_id)
-                    if not member:
-                        try: member = await guild.fetch_member(payload.user_id)
-                        except discord.HTTPException: pass
-                            
-                    role = guild.get_role(rr['role_id'])
-                    if member and role:
-                        try: await member.remove_roles(role)
-                        except discord.HTTPException: pass
+                matched_rr = rr
+                break
+                
+        if matched_rr:
+            guild = self.bot.get_guild(payload.guild_id)
+            if guild:
+                member = guild.get_member(payload.user_id)
+                if not member:
+                    try: member = await guild.fetch_member(payload.user_id)
+                    except discord.HTTPException: return
+                    
+                role_to_remove = guild.get_role(matched_rr['role_id'])
+                if role_to_remove:
+                    await self.role_queue.put((member, None, [role_to_remove], None, None, []))
 
     # --- Listeners (End) ---
 

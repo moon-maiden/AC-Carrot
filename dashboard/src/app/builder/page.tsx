@@ -181,6 +181,7 @@ export default function MessageBuilderPage() {
   const [activeEmbedIdx, setActiveEmbedIdx] = useState<number | null>(null);
   
   const [suppressNotifications, setSuppressNotifications] = useState(false);
+  const [singleChoice, setSingleChoice] = useState(false);
   
   const [customChannelId, setCustomChannelId] = useState("");
   const [isCustomChannel, setIsCustomChannel] = useState(false);
@@ -224,6 +225,7 @@ export default function MessageBuilderPage() {
         }
         if (data.reaction_roles) setReactionRoles(data.reaction_roles);
         if (data.thread_name) setThreadName(data.thread_name);
+        if (data.single_choice !== undefined) setSingleChoice(data.single_choice);
       })
       .catch((err) => {
         console.error("Failed to auto-retrieve message info:", err);
@@ -363,6 +365,7 @@ export default function MessageBuilderPage() {
       thread_name: threadName || null,
       reaction_roles: reactionRoles.length > 0 ? reactionRoles : null,
       suppress_notifications: suppressNotifications,
+      single_choice: singleChoice,
     };
 
     try {
@@ -525,6 +528,26 @@ export default function MessageBuilderPage() {
                 <span
                   className={`${
                     suppressNotifications ? "translate-x-[22px] bg-white" : "translate-x-[4px] bg-gray-400"
+                  } pointer-events-none inline-block h-4 w-4 transform rounded-full shadow transition duration-200 ease-in-out`}
+                />
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between pt-2 border-t border-teal-950/20">
+              <div className="flex flex-col">
+                <span className="text-xs text-gray-200 font-medium">Exclusive Roles</span>
+                <span className="text-[11px] text-gray-500">Single Choice — Users can only select one role at a time</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSingleChoice(!singleChoice)}
+                className={`${
+                  singleChoice ? "bg-teal-500" : "bg-teal-950/40 border border-teal-900/30"
+                } relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out focus:outline-none items-center`}
+              >
+                <span
+                  className={`${
+                    singleChoice ? "translate-x-[22px] bg-white" : "translate-x-[4px] bg-gray-400"
                   } pointer-events-none inline-block h-4 w-4 transform rounded-full shadow transition duration-200 ease-in-out`}
                 />
               </button>

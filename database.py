@@ -195,6 +195,13 @@ async def init_db():
         ''')
         
         await db.execute('''
+            CREATE TABLE IF NOT EXISTS reaction_role_settings (
+                message_id INTEGER PRIMARY KEY,
+                single_choice INTEGER DEFAULT 0
+            )
+        ''')
+        
+        await db.execute('''
             CREATE TABLE IF NOT EXISTS dropdown_menus (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 message_id INTEGER NOT NULL,
@@ -751,6 +758,24 @@ async def remove_reaction_role(message_id: int, emoji: str, role_id: int):
             WHERE message_id = ? AND emoji = ? AND role_id = ?
         ''', (message_id, emoji, role_id))
         await db.commit()
+
+async def set_message_reaction_role_settings(message_id: int, single_choice: bool):
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute('''
+            INSERT INTO reaction_role_settings (message_id, single_choice)
+            VALUES (?, ?)
+            ON CONFLICT(message_id) DO UPDATE SET single_choice = excluded.single_choice
+        ''', (message_id, 1 if single_choice else 0))
+        await db.commit()
+
+async def get_message_reaction_role_settings(message_id: int) -> dict:
+    async with aiosqlite.connect(DB_NAME) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute('SELECT * FROM reaction_role_settings WHERE message_id = ?', (message_id,))
+        row = await cursor.fetchone()
+        if row:
+            return dict(row)
+        return {"message_id": message_id, "single_choice": 0}
 
 # --- Dropdown Roles Methods ---
 

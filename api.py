@@ -1147,6 +1147,7 @@ class MessageBuilderSend(BaseModel):
     thread_name: Optional[str] = None
     reaction_roles: Optional[List[ReactionRoleData]] = None
     suppress_notifications: Optional[bool] = False
+    single_choice: Optional[bool] = False
 
 @app.get("/api/guilds/{guild_id}/channels")
 async def get_guild_channels(guild_id: int, access_level: str = Depends(requires_admin_access)):
@@ -1248,14 +1249,23 @@ async def send_builder_message(guild_id: int, data: MessageBuilderSend, access_l
                 
                 await msg.edit(content=data.message_text or None, embeds=embeds or None)
                 
+                await database.delete_reaction_roles_for_message(msg.id)
                 if data.reaction_roles:
                     for rr in data.reaction_roles:
+                        resolved_emoji = rr.emoji
+                        if rr.emoji.startswith(":") and rr.emoji.endswith(":"):
+                            clean_name = rr.emoji.strip(":")
+                            custom_emoji = discord.utils.get(guild.emojis, name=clean_name)
+                            if custom_emoji:
+                                prefix = "a" if custom_emoji.animated else ""
+                                resolved_emoji = f"<{prefix}:{custom_emoji.name}:{custom_emoji.id}>"
                         try:
-                            await msg.add_reaction(rr.emoji)
-                            await database.add_reaction_role(msg.id, guild_id, rr.emoji, int(rr.role_id))
+                            await msg.add_reaction(resolved_emoji)
+                            await database.add_reaction_role(msg.id, guild_id, resolved_emoji, int(rr.role_id))
                         except Exception as re:
                             print(f"Failed to add reaction role: {re}")
                             
+                await database.set_message_reaction_role_settings(msg.id, data.single_choice or False)
                 return {"status": "success", "message_id": str(msg.id)}
             except discord.NotFound:
                 raise HTTPException(status_code=404, detail="Message not found in the selected channel.")
@@ -1279,14 +1289,23 @@ async def send_builder_message(guild_id: int, data: MessageBuilderSend, access_l
             except Exception as te:
                 print(f"Failed to create thread for builder message: {te}")
                 
+        await database.delete_reaction_roles_for_message(msg.id)
         if data.reaction_roles:
             for rr in data.reaction_roles:
+                resolved_emoji = rr.emoji
+                if rr.emoji.startswith(":") and rr.emoji.endswith(":"):
+                    clean_name = rr.emoji.strip(":")
+                    custom_emoji = discord.utils.get(guild.emojis, name=clean_name)
+                    if custom_emoji:
+                        prefix = "a" if custom_emoji.animated else ""
+                        resolved_emoji = f"<{prefix}:{custom_emoji.name}:{custom_emoji.id}>"
                 try:
-                    await msg.add_reaction(rr.emoji)
-                    await database.add_reaction_role(msg.id, guild_id, rr.emoji, int(rr.role_id))
+                    await msg.add_reaction(resolved_emoji)
+                    await database.add_reaction_role(msg.id, guild_id, resolved_emoji, int(rr.role_id))
                 except Exception as re:
                     print(f"Failed to add reaction role: {re}")
                     
+        await database.set_message_reaction_role_settings(msg.id, data.single_choice or False)
         return {"status": "success", "message_id": str(msg.id)}
     except discord.Forbidden:
         raise HTTPException(status_code=403, detail="Bot is missing Send Messages permission in the selected channel.")
@@ -1408,12 +1427,14 @@ async def get_builder_message(
                 "role_id": str(rr["role_id"])
             })
             
+    settings = await database.get_message_reaction_role_settings(message_id)
     return {
         "channel_id": str(target_channel.id),
         "message_text": msg.content or "",
         "embeds": embeds_data,
         "reaction_roles": reaction_roles,
-        "thread_name": msg.thread.name if msg.thread else ""
+        "thread_name": msg.thread.name if msg.thread else "",
+        "single_choice": settings.get("single_choice", 0) == 1
     }
 
 class VacationRequest(BaseModel):
