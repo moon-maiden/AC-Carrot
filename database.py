@@ -616,21 +616,32 @@ async def delete_warning_by_id(warning_id: int) -> bool:
         await db.commit()
         return True
 
-async def get_warnings_by_staff_paginated(staff_id: int, limit: int, offset: int):
+async def get_warnings_by_staff_paginated(staff_id: int, limit: int, offset: int, guild_id: int = None):
     async with aiosqlite.connect(DB_NAME) as db:
         db.row_factory = aiosqlite.Row
-        cursor = await db.execute('''
-            SELECT id, user_id, warned_at, channel_id, message_id, message_content, reason FROM warnings
-            WHERE staff_id = ?
-            ORDER BY warned_at DESC
-            LIMIT ? OFFSET ?
-        ''', (staff_id, limit, offset))
+        if guild_id:
+            cursor = await db.execute('''
+                SELECT id, user_id, warned_at, channel_id, message_id, message_content, reason FROM warnings
+                WHERE staff_id = ? AND (guild_id = ? OR guild_id IS NULL)
+                ORDER BY warned_at DESC
+                LIMIT ? OFFSET ?
+            ''', (staff_id, guild_id, limit, offset))
+        else:
+            cursor = await db.execute('''
+                SELECT id, user_id, warned_at, channel_id, message_id, message_content, reason FROM warnings
+                WHERE staff_id = ?
+                ORDER BY warned_at DESC
+                LIMIT ? OFFSET ?
+            ''', (staff_id, limit, offset))
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
 
-async def get_warnings_by_staff_count(staff_id: int) -> int:
+async def get_warnings_by_staff_count(staff_id: int, guild_id: int = None) -> int:
     async with aiosqlite.connect(DB_NAME) as db:
-        cursor = await db.execute('SELECT COUNT(*) FROM warnings WHERE staff_id = ?', (staff_id,))
+        if guild_id:
+            cursor = await db.execute('SELECT COUNT(*) FROM warnings WHERE staff_id = ? AND (guild_id = ? OR guild_id IS NULL)', (staff_id, guild_id))
+        else:
+            cursor = await db.execute('SELECT COUNT(*) FROM warnings WHERE staff_id = ?', (staff_id,))
         row = await cursor.fetchone()
         return row[0] if row else 0
 

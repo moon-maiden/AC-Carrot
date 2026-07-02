@@ -757,10 +757,11 @@ class WarningTracker(commands.Cog):
                 return
 
         target_staff = staff or ctx.author
-        total_count = await database.get_warnings_by_staff_count(target_staff.id)
+        guild_id = ctx.guild.id if ctx.guild else None
+        total_count = await database.get_warnings_by_staff_count(target_staff.id, guild_id)
         
         # Build paginated view
-        view = StaffWarningsPaginationView(target_staff, total_count, database.get_warnings_by_staff_paginated, ctx.guild.id if ctx.guild else "@me", notice_channel_id)
+        view = StaffWarningsPaginationView(target_staff, total_count, database.get_warnings_by_staff_paginated, guild_id or "@me", notice_channel_id)
         embed = await view.get_page_embed()
         view.message = await ctx.send(embed=embed, view=view)
 
