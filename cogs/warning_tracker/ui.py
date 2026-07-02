@@ -254,6 +254,7 @@ class WarningsPaginationView(discord.ui.View):
         self.next_btn.disabled = self.current_page >= self.max_pages - 1
 
     async def get_page_embed(self) -> discord.Embed:
+        offset = self.current_page * self.page_size
         g_id = self.guild_id if isinstance(self.guild_id, int) else None
         page_warnings = await self.get_page_callback(self.user.id, self.page_size, offset, g_id)
         
@@ -332,6 +333,7 @@ class StaffWarningsPaginationView(discord.ui.View):
         self.next_btn.disabled = self.current_page >= self.max_pages - 1
 
     async def get_page_embed(self) -> discord.Embed:
+        offset = self.current_page * self.page_size
         g_id = self.guild_id if isinstance(self.guild_id, int) else None
         page_warnings = await self.get_page_callback(self.staff_user.id, self.page_size, offset, g_id)
         
