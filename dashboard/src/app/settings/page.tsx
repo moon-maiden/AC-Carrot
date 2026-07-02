@@ -618,11 +618,7 @@ export default function SettingsPage() {
                   </div>
                 </div>
                 <button
-                  onClick={() => {
-                    const pwd = prompt("Enter Administrator Passcode to unlock this action:");
-                    if (pwd !== "admin123") return alert("Unauthorized.");
-                    handlePurge();
-                  }}
+                  onClick={handlePurge}
                   className="bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed" disabled={isViewOnly}
                 >
                   Purge All Paid Requests
