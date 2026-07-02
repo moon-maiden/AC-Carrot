@@ -441,7 +441,8 @@ class PaidRequest(commands.Cog):
                 use_case_val=req['use_case'],
                 content_val=req['content'],
                 review_msg_id=req['staff_review_msg_id'],
-                dm_msg=interaction.message
+                dm_msg=interaction.message,
+                guild_id=req['guild_id']
             ))
             
         elif custom_id.startswith("dmcancel_"):

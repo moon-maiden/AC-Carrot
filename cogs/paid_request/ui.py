@@ -72,7 +72,7 @@ class PaidRequestModal(discord.ui.Modal):
         guild_id = self.guild_id or interaction.guild_id
         if is_edit and not guild_id:
             req = await database.get_paid_request(self.request_id)
-            if req and req.get('guild_id'):
+            if req and "guild_id" in req.keys():
                 guild_id = req['guild_id']
                 
         config = await database.get_guild_config(guild_id or 0)
