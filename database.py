@@ -500,19 +500,23 @@ async def warning_exists(message_id: int, user_id: int) -> bool:
         row = await cursor.fetchone()
         return row is not None
 
-async def get_warnings_count_last_3_months(user_id: int) -> int:
+async def get_warnings_count_last_3_months(user_id: int, guild_id: int = None) -> int:
     async with aiosqlite.connect(DB_NAME) as db:
-        # Check warnings in the last 3 months
-        cursor = await db.execute('''
-            SELECT COUNT(*) FROM warnings 
-            WHERE user_id = ? AND warned_at >= datetime('now', '-3 months')
-        ''', (user_id,))
+        if guild_id:
+            cursor = await db.execute('''
+                SELECT COUNT(*) FROM warnings 
+                WHERE user_id = ? AND (guild_id = ? OR guild_id IS NULL) AND warned_at >= datetime('now', '-3 months')
+            ''', (user_id, guild_id))
+        else:
+            cursor = await db.execute('''
+                SELECT COUNT(*) FROM warnings 
+                WHERE user_id = ? AND warned_at >= datetime('now', '-3 months')
+            ''', (user_id,))
         row = await cursor.fetchone()
         return row[0] if row else 0
 
 async def get_warnings_count_last_30_days(user_id: int) -> int:
     async with aiosqlite.connect(DB_NAME) as db:
-        # Check warnings in the last 30 days
         cursor = await db.execute('''
             SELECT COUNT(*) FROM warnings 
             WHERE user_id = ? AND warned_at >= datetime('now', '-30 days')
@@ -531,41 +535,67 @@ async def get_last_warning_staff_id_last_30_days(user_id: int):
         row = await cursor.fetchone()
         return row[0] if row else None
 
-async def get_last_warning_staff_id_last_3_months(user_id: int):
+async def get_last_warning_staff_id_last_3_months(user_id: int, guild_id: int = None):
     async with aiosqlite.connect(DB_NAME) as db:
-        cursor = await db.execute('''
-            SELECT staff_id FROM warnings
-            WHERE user_id = ? AND staff_id IS NOT NULL AND warned_at >= datetime('now', '-3 months')
-            ORDER BY warned_at DESC
-            LIMIT 1
-        ''', (user_id,))
+        if guild_id:
+            cursor = await db.execute('''
+                SELECT staff_id FROM warnings
+                WHERE user_id = ? AND (guild_id = ? OR guild_id IS NULL) AND staff_id IS NOT NULL AND warned_at >= datetime('now', '-3 months')
+                ORDER BY warned_at DESC
+                LIMIT 1
+            ''', (user_id, guild_id))
+        else:
+            cursor = await db.execute('''
+                SELECT staff_id FROM warnings
+                WHERE user_id = ? AND staff_id IS NOT NULL AND warned_at >= datetime('now', '-3 months')
+                ORDER BY warned_at DESC
+                LIMIT 1
+            ''', (user_id,))
         row = await cursor.fetchone()
         return row[0] if row else None
 
-async def get_warnings_last_3_months(user_id: int):
+async def get_warnings_last_3_months(user_id: int, guild_id: int = None):
     async with aiosqlite.connect(DB_NAME) as db:
-        cursor = await db.execute('''
-            SELECT id, reason, warned_at FROM warnings
-            WHERE user_id = ? AND warned_at >= datetime('now', '-3 months')
-            ORDER BY warned_at DESC
-        ''', (user_id,))
+        if guild_id:
+            cursor = await db.execute('''
+                SELECT id, reason, warned_at FROM warnings
+                WHERE user_id = ? AND (guild_id = ? OR guild_id IS NULL) AND warned_at >= datetime('now', '-3 months')
+                ORDER BY warned_at DESC
+            ''', (user_id, guild_id))
+        else:
+            cursor = await db.execute('''
+                SELECT id, reason, warned_at FROM warnings
+                WHERE user_id = ? AND warned_at >= datetime('now', '-3 months')
+                ORDER BY warned_at DESC
+            ''', (user_id,))
         return await cursor.fetchall()
 
-async def get_warnings_paginated(user_id: int, limit: int, offset: int):
+async def get_warnings_paginated(user_id: int, limit: int, offset: int, guild_id: int = None):
     async with aiosqlite.connect(DB_NAME) as db:
         db.row_factory = aiosqlite.Row
-        cursor = await db.execute('''
-            SELECT id, warned_at, channel_id, message_id, message_content, staff_id, reason FROM warnings
-            WHERE user_id = ?
-            ORDER BY warned_at DESC
-            LIMIT ? OFFSET ?
-        ''', (user_id, limit, offset))
+        if guild_id:
+            cursor = await db.execute('''
+                SELECT id, warned_at, channel_id, message_id, message_content, staff_id, reason FROM warnings
+                WHERE user_id = ? AND (guild_id = ? OR guild_id IS NULL)
+                ORDER BY warned_at DESC
+                LIMIT ? OFFSET ?
+            ''', (user_id, guild_id, limit, offset))
+        else:
+            cursor = await db.execute('''
+                SELECT id, warned_at, channel_id, message_id, message_content, staff_id, reason FROM warnings
+                WHERE user_id = ?
+                ORDER BY warned_at DESC
+                LIMIT ? OFFSET ?
+            ''', (user_id, limit, offset))
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
 
-async def get_warnings_count(user_id: int) -> int:
+async def get_warnings_count(user_id: int, guild_id: int = None) -> int:
     async with aiosqlite.connect(DB_NAME) as db:
-        cursor = await db.execute('SELECT COUNT(*) FROM warnings WHERE user_id = ?', (user_id,))
+        if guild_id:
+            cursor = await db.execute('SELECT COUNT(*) FROM warnings WHERE user_id = ? AND (guild_id = ? OR guild_id IS NULL)', (user_id, guild_id))
+        else:
+            cursor = await db.execute('SELECT COUNT(*) FROM warnings WHERE user_id = ?', (user_id,))
         row = await cursor.fetchone()
         return row[0] if row else 0
 

@@ -634,7 +634,7 @@ class WarningTracker(commands.Cog):
                     warnings_str += "\n*(Older warnings truncated to fit Discord message limits...)*"
                 
                 # Ping the last staff member who warned them instead of Carrot
-                last_staff_id = await database.get_last_warning_staff_id_last_3_months(user.id)
+                last_staff_id = await database.get_last_warning_staff_id_last_3_months(user.id, guild_id=guild.id if guild else None)
                 staff_mention = f"<@{last_staff_id}>" if last_staff_id else message.author.mention
                 
                 embed = discord.Embed(
@@ -658,10 +658,11 @@ class WarningTracker(commands.Cog):
         config = await database.get_guild_config(ctx.guild.id if ctx.guild else 0)
         notice_channel_id = config.get("staff_notice_channel_id") or 0
         
-        total_count = await database.get_warnings_count(target_user.id)
+        guild_id = ctx.guild.id if ctx.guild else None
+        total_count = await database.get_warnings_count(target_user.id, guild_id)
         
         # Build paginated view
-        view = WarningsPaginationView(target_user, total_count, database.get_warnings_paginated, ctx.guild.id if ctx.guild else "@me", notice_channel_id)
+        view = WarningsPaginationView(target_user, total_count, database.get_warnings_paginated, guild_id or "@me", notice_channel_id)
         embed = await view.get_page_embed()
         view.message = await ctx.send(embed=embed, view=view)
 
