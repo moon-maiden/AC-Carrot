@@ -33,6 +33,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 
 # Limit memory usage during build to prevent crashes on 1GB RAM servers
 ENV NODE_OPTIONS="--max-old-space-size=512"
+ENV NEXT_PRIVATE_WORKER_LIMIT=1
 
 # Build the Next.js app
 RUN npm run build
