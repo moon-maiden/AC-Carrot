@@ -214,8 +214,16 @@ class WarningTracker(commands.Cog):
                 reason_text = reason_text[:1021] + "..."
             log_embed.add_field(name="Rejection Reason", value=reason_text, inline=False)
             
-            dashboard_url = os.getenv("DASHBOARD_URL", "http://localhost:3000")
-            log_link = f"[log](https://{dashboard_url}/guilds/{message.guild.id if message.guild else 0}/logs/warnings/{warn_id})"
+            dashboard_url = os.getenv("DASHBOARD_URL", "localhost:3000")
+            if dashboard_url.startswith("http://") or dashboard_url.startswith("https://"):
+                base_url = dashboard_url
+            else:
+                clean_host = dashboard_url.split(":")[0]
+                is_ip = clean_host.replace(".", "").isdigit() or clean_host == "localhost"
+                protocol = "http" if is_ip else "https"
+                base_url = f"{protocol}://{dashboard_url}"
+            
+            log_link = f"[log]({base_url}/guilds/{message.guild.id if message.guild else 0}/logs/warnings/{warn_id})"
 
             # Original Post Content (without link is 10 chars for formatting: ```\n\n```\n, with link is 10 + len(log_link) + 1 for newline)
             content_snippet = resolved_content
@@ -511,8 +519,16 @@ class WarningTracker(commands.Cog):
                     reason_text = reason_text[:1021] + "..."
                 log_embed.add_field(name="Warning Reason", value=reason_text, inline=False)
                 
-                dashboard_url = os.getenv("DASHBOARD_URL", "http://localhost:3000")
-                log_link = f"[log](https://{dashboard_url}/guilds/{message.guild.id if message.guild else 0}/logs/warnings/{warn_id})"
+                dashboard_url = os.getenv("DASHBOARD_URL", "localhost:3000")
+                if dashboard_url.startswith("http://") or dashboard_url.startswith("https://"):
+                    base_url = dashboard_url
+                else:
+                    clean_host = dashboard_url.split(":")[0]
+                    is_ip = clean_host.replace(".", "").isdigit() or clean_host == "localhost"
+                    protocol = "http" if is_ip else "https"
+                    base_url = f"{protocol}://{dashboard_url}"
+                
+                log_link = f"[log]({base_url}/guilds/{message.guild.id if message.guild else 0}/logs/warnings/{warn_id})"
                 
                 # Format original post content to fit under 1024 (11 chars for ```\n\n```\n, and length of log_link)
                 reason_desc = original_content
