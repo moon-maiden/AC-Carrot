@@ -547,7 +547,7 @@ class PaidRequest(commands.Cog):
 
         approved_msg = None
         if approved_channel:
-            approved_msg = await approved_channel.send(content=f"DM the user here <@{req['user_id']}>", embed=embed)
+            approved_msg = await approved_channel.send(content=f"__**DIRECT MESSAGE the user here:**__ <@{req['user_id']}>", embed=embed)
             
         await database.update_paid_request_status(req_id, 'approved', approved_msg.id if approved_msg else None, actioned_by=interaction.user.id)
 

@@ -36,6 +36,10 @@ class ACCarrotBot(commands.Bot):
         await database.init_db()
         print("Database initialized.")
         
+        # Cleanup orphaned and old attachments
+        await database.cleanup_attachments()
+        print("Attachments cleaned up.")
+        
         # Load extensions/cogs
         await self.load_extension("cogs.warning_tracker")
         await self.load_extension("cogs.paid_request")

@@ -1,5 +1,6 @@
 import aiosqlite
 import os
+import json
 
 # Use persistent /data directory if on Railway, otherwise fallback to local file
 if os.path.exists("/data") and os.access("/data", os.W_OK):
@@ -11,6 +12,24 @@ else:
 
 os.makedirs(ATTACHMENTS_DIR, exist_ok=True)
 
+def _delete_files_for_attachments(attachments_str):
+    if not attachments_str:
+        return
+    try:
+        attachments_list = json.loads(attachments_str)
+        if isinstance(attachments_list, list):
+            for att in attachments_list:
+                stored_name = att.get("stored_filename")
+                if stored_name:
+                    file_path = os.path.join(ATTACHMENTS_DIR, stored_name)
+                    if os.path.exists(file_path):
+                        try:
+                            os.remove(file_path)
+                            print(f"Deleted attachment file: {file_path}")
+                        except Exception as e:
+                            print(f"Error deleting attachment file {file_path}: {e}")
+    except Exception as e:
+        print(f"Error parsing attachments JSON: {e}")
 
 async def init_db():
     async with aiosqlite.connect(DB_NAME) as db:
@@ -489,6 +508,11 @@ async def add_warning(user_id: int, channel_id: int, message_id: int, message_co
 
 async def revoke_warning(warning_id: int):
     async with aiosqlite.connect(DB_NAME) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute('SELECT attachments FROM warnings WHERE id = ?', (warning_id,))
+        row = await cursor.fetchone()
+        if row and row['attachments']:
+            _delete_files_for_attachments(row['attachments'])
         await db.execute('DELETE FROM warnings WHERE id = ?', (warning_id,))
         await db.commit()
 
@@ -608,10 +632,13 @@ async def get_warning_by_id(warning_id: int):
 
 async def delete_warning_by_id(warning_id: int) -> bool:
     async with aiosqlite.connect(DB_NAME) as db:
-        cursor = await db.execute('SELECT 1 FROM warnings WHERE id = ?', (warning_id,))
-        exists = await cursor.fetchone()
-        if not exists:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute('SELECT attachments FROM warnings WHERE id = ?', (warning_id,))
+        row = await cursor.fetchone()
+        if not row:
             return False
+        if row['attachments']:
+            _delete_files_for_attachments(row['attachments'])
         await db.execute('DELETE FROM warnings WHERE id = ?', (warning_id,))
         await db.commit()
         return True
@@ -769,6 +796,14 @@ async def purge_all_warnings():
         await db.execute("DELETE FROM sqlite_sequence WHERE name = 'warnings'")
         await db.commit()
 
+    if os.path.exists(ATTACHMENTS_DIR):
+        for filename in os.listdir(ATTACHMENTS_DIR):
+            file_path = os.path.join(ATTACHMENTS_DIR, filename)
+            if os.path.isfile(file_path):
+                try:
+                    os.remove(file_path)
+                except Exception as e:
+                    print(f"Failed to delete {file_path}: {e}")
 
 
 
@@ -1060,3 +1095,66 @@ async def get_vacation_history(guild_id: int) -> list:
         cursor = await db.execute("SELECT * FROM vacation_history WHERE guild_id = ? ORDER BY vacation_end DESC", (guild_id,))
         rows = await cursor.fetchall()
         return [dict(r) for r in rows]
+
+async def cleanup_attachments():
+    """
+    1. 30-Day Retention Policy: Delete attachments for warnings older than 30 days.
+    2. Orphan Cleanup: Delete files not referenced in the database.
+    """
+    if not os.path.exists(ATTACHMENTS_DIR):
+        return
+
+    print("Starting attachments cleanup and retention policy execution...")
+    
+    async with aiosqlite.connect(DB_NAME) as db:
+        db.row_factory = aiosqlite.Row
+        
+        # 1. Retention Policy
+        cursor = await db.execute('''
+            SELECT id, attachments FROM warnings 
+            WHERE (warned_at < datetime('now', '-30 days') OR post_created_at < datetime('now', '-30 days'))
+              AND attachments IS NOT NULL
+        ''')
+        old_warnings = await cursor.fetchall()
+        
+        deleted_count = 0
+        for warning in old_warnings:
+            attachments_str = warning['attachments']
+            _delete_files_for_attachments(attachments_str)
+            await db.execute('UPDATE warnings SET attachments = NULL WHERE id = ?', (warning['id'],))
+            deleted_count += 1
+            
+        if deleted_count > 0:
+            await db.commit()
+            print(f"Removed attachments from {deleted_count} warnings older than 30 days.")
+            
+        # 2. Orphan Cleanup
+        cursor = await db.execute('SELECT attachments FROM warnings WHERE attachments IS NOT NULL')
+        rows = await cursor.fetchall()
+        
+        active_filenames = set()
+        for row in rows:
+            attachments_str = row['attachments']
+            try:
+                attachments_list = json.loads(attachments_str)
+                if isinstance(attachments_list, list):
+                    for att in attachments_list:
+                        stored_name = att.get("stored_filename")
+                        if stored_name:
+                            active_filenames.add(stored_name)
+            except Exception:
+                pass
+                
+        files_in_dir = os.listdir(ATTACHMENTS_DIR)
+        orphaned_count = 0
+        for filename in files_in_dir:
+            if filename not in active_filenames:
+                file_path = os.path.join(ATTACHMENTS_DIR, filename)
+                if os.path.isfile(file_path):
+                    try:
+                        os.remove(file_path)
+                        orphaned_count += 1
+                    except Exception as e:
+                        print(f"Error removing orphaned file {filename}: {e}")
+                        
+        print(f"Orphan cleanup finished. Deleted {orphaned_count} orphaned attachment files.")

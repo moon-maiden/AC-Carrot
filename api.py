@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Request, Header, Depends, status
+from fastapi import FastAPI, HTTPException, Request, Header, Depends, status, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -8,10 +8,12 @@ import os
 import time
 import aiohttp
 import discord
+import shutil
+import tempfile
 
 app = FastAPI()
 
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from collections import defaultdict
 
 # Simple sliding window rate limiter (100 requests per minute per IP)
@@ -35,6 +37,37 @@ async def rate_limit_middleware(request: Request, call_next):
 
 # Mount static files for attachments
 app.mount("/api/attachments", StaticFiles(directory=database.ATTACHMENTS_DIR), name="attachments")
+
+def cleanup_temp_dir(path: str):
+    try:
+        shutil.rmtree(path)
+    except Exception as e:
+        print(f"Failed to cleanup temp dir {path}: {e}")
+
+@app.get("/api/admin/backup")
+async def download_backup(background_tasks: BackgroundTasks, token: str = None):
+    expected_token = os.getenv("BACKUP_SECRET_TOKEN")
+    if not expected_token or token != expected_token:
+        raise HTTPException(status_code=403, detail="Forbidden: Invalid or missing token")
+        
+    temp_dir = tempfile.mkdtemp()
+    zip_path = os.path.join(temp_dir, "backup")
+    staging_dir = os.path.join(temp_dir, "staging")
+    os.makedirs(staging_dir)
+    
+    if os.path.exists(database.DB_NAME):
+        shutil.copy2(database.DB_NAME, os.path.join(staging_dir, "database.sqlite"))
+        
+    if os.path.exists(database.ATTACHMENTS_DIR):
+        dest_attachments = os.path.join(staging_dir, "attachments")
+        shutil.copytree(database.ATTACHMENTS_DIR, dest_attachments)
+        
+    shutil.make_archive(zip_path, 'zip', staging_dir)
+    final_zip = f"{zip_path}.zip"
+    
+    background_tasks.add_task(cleanup_temp_dir, temp_dir)
+    
+    return FileResponse(final_zip, media_type="application/zip", filename="ac_carrot_backup.zip")
 
 # Enable CORS for Next.js frontend
 dashboard_origins = os.getenv("DASHBOARD_CORS_ORIGINS", "http://localhost:3000").split(",")
