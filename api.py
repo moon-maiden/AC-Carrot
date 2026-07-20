@@ -1134,6 +1134,8 @@ class ChatbotConfigUpdate(BaseModel):
     main_menu: ChatbotMenuData
     menus: Optional[dict] = None
     dm_prompt_button: Optional[bool] = False
+    trigger_on_dm: Optional[bool] = False
+    dm_custom_message: Optional[str] = None
 
 @app.get("/api/guilds/{guild_id}/chatbot")
 async def get_chatbot(guild_id: int, access_level: str = Depends(requires_view_access)):
@@ -1521,12 +1523,30 @@ async def get_vacations(guild_id: int, access_level: str = Depends(requires_view
         duration_str = "Just now"
         try:
             start_dt = None
-            for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S.%f', '%Y-%m-%dT%H:%M:%S'):
+            raw_start = r["vacation_start"]
+            if isinstance(raw_start, datetime):
+                start_dt = raw_start.replace(tzinfo=timezone.utc)
+            elif isinstance(raw_start, str):
+                val = raw_start.strip()
                 try:
-                    start_dt = datetime.strptime(r["vacation_start"], fmt).replace(tzinfo=timezone.utc)
-                    break
+                    if val.endswith('Z'):
+                        val = val[:-1] + '+00:00'
+                    start_dt = datetime.fromisoformat(val)
+                    if start_dt.tzinfo is None:
+                        start_dt = start_dt.replace(tzinfo=timezone.utc)
                 except ValueError:
-                    continue
+                    for fmt in (
+                        '%Y-%m-%d %H:%M:%S',
+                        '%Y-%m-%d %H:%M:%S.%f',
+                        '%Y-%m-%dT%H:%M:%S.%f',
+                        '%Y-%m-%dT%H:%M:%S',
+                        '%Y-%m-%d'
+                    ):
+                        try:
+                            start_dt = datetime.strptime(val, fmt).replace(tzinfo=timezone.utc)
+                            break
+                        except ValueError:
+                            continue
             if start_dt:
                 diff = datetime.now(timezone.utc) - start_dt
                 if diff.days > 365:

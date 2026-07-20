@@ -390,22 +390,30 @@ class HelpPaginationView(discord.ui.View):
         self.message = None
         self.pages = [
             {
-                "title": "🥕 Verbal Tracker Commands",
+                "title": "🥕 Prefix Commands (!)",
                 "color": discord.Color.orange(),
                 "fields": [
-                    ("!verbals <userid>", "Retrieve a list of verbal notices for the specified user ID.", False),
-                    ("!delverbal <id>", "Deletes a verbal notice from the database using its unique Verbal ID.", False),
-                    ("!verbalby <userid>", "Retrieve a paginated list of all verbal notices issued by the specified staff member ID.", False),
-                    ("!sync_warnings", "Syncs the last 3 months of verbals in #staff-notice into the database.", False)
+                    ("!verbals <userid>", "Retrieve a list of verbal warnings for the specified user ID.", False),
+                    ("!delverbal <id>", "Deletes a verbal warning using its unique Verbal ID.", False),
+                    ("!verbalby <userid>", "List all warnings issued by the specified staff member ID.", False),
+                    ("!sync_warnings", "Syncs the last 3 months of warnings in #staff-notice into the database.", False),
+                    ("!givevac @member [reason]", "Puts a staff member on vacation (removes staff roles).", False),
+                    ("!removevac @member", "Restores staff roles and returns a user from vacation.", False),
+                    ("!setup_paid_requests", "Sends the persistent 'Create Request' panel to the configured channel.", False),
+                    ("!chatbot_setup_channel", "Sends the persistent 'Start Chat' card to the configured channel.", False),
+                    ("!carrothelp", "Show this help menu.", False)
                 ]
             },
             {
-                "title": "🥕 Setup & General Commands",
-                "color": discord.Color.green(),
+                "title": "🥕 Slash Commands (/)",
+                "color": discord.Color.blurple(),
                 "fields": [
-                    ("!setup_paid_requests", "Sends the persistent 'Create Request' embed/button to the configured paid requests channel.", False),
-                    ("!chatbot_setup_channel", "Sends the persistent 'Start Chat' chatbot embed/button to the configured channel.", False),
-                    ("!carrothelp", "Show a help menu.", False)
+                    ("/verbal <action> [reason]", "Manage dynamic verbal warning reasons (Admins/TLs only).", False),
+                    ("/addvac <target> [reason]", "Puts a staff member on vacation (Admins/TLs only).", False),
+                    ("/removevac <target>", "Restores staff roles and returns a user from vacation (Admins/TLs only).", False),
+                    ("/send_as <message>", "Sends a raw message directly as Carrot Bot.", False),
+                    ("/message_builder", "Opens the web link to the interactive message builder panel.", False),
+                    ("/purge <target>", "Purge specific database tables (Developer Only).", False)
                 ]
             }
         ]

@@ -331,6 +331,18 @@ async def init_db():
             )
         ''')
 
+        try:
+            await db.execute('ALTER TABLE chatbot_settings ADD COLUMN trigger_on_dm INTEGER DEFAULT 0')
+            await db.commit()
+        except aiosqlite.OperationalError:
+            pass
+
+        try:
+            await db.execute('ALTER TABLE chatbot_settings ADD COLUMN dm_custom_message TEXT')
+            await db.commit()
+        except aiosqlite.OperationalError:
+            pass
+
         await db.execute('''
             CREATE TABLE IF NOT EXISTS chatbot_buttons (
                 guild_id INTEGER,
@@ -948,9 +960,11 @@ async def get_chatbot_config(guild_id: int) -> dict:
         button_rows = await cursor.fetchall()
         
         # 3. Fetch chatbot settings
-        cursor = await db.execute("SELECT dm_prompt_button FROM chatbot_settings WHERE guild_id = ?", (guild_id,))
+        cursor = await db.execute("SELECT dm_prompt_button, trigger_on_dm, dm_custom_message FROM chatbot_settings WHERE guild_id = ?", (guild_id,))
         settings_row = await cursor.fetchone()
         dm_prompt = settings_row["dm_prompt_button"] == 1 if settings_row else False
+        trigger_on_dm = settings_row["trigger_on_dm"] == 1 if settings_row else False
+        dm_custom_message = settings_row["dm_custom_message"] if settings_row else None
         
     # Build buttons map by menu_id
     buttons_by_menu = {}
@@ -979,7 +993,9 @@ async def get_chatbot_config(guild_id: int) -> dict:
             "buttons": []
         },
         "menus": {},
-        "dm_prompt_button": dm_prompt
+        "dm_prompt_button": dm_prompt,
+        "trigger_on_dm": trigger_on_dm,
+        "dm_custom_message": dm_custom_message
     }
     
     for r in menu_rows:
@@ -1013,9 +1029,11 @@ async def save_chatbot_config(guild_id: int, config: dict):
         
         # Save chatbot settings
         dm_prompt = 1 if config.get("dm_prompt_button", False) else 0
+        trigger_on_dm = 1 if config.get("trigger_on_dm", False) else 0
+        dm_custom_message = config.get("dm_custom_message", None)
         await db.execute(
-            "INSERT OR REPLACE INTO chatbot_settings (guild_id, dm_prompt_button) VALUES (?, ?)",
-            (guild_id, dm_prompt)
+            "INSERT OR REPLACE INTO chatbot_settings (guild_id, dm_prompt_button, trigger_on_dm, dm_custom_message) VALUES (?, ?, ?, ?)",
+            (guild_id, dm_prompt, trigger_on_dm, dm_custom_message)
         )
         
         # Save main menu
