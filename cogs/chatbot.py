@@ -316,33 +316,12 @@ class Chatbot(commands.Cog):
                 
             config = self.get_guild_chatbot_config_sync(guild_id)
             dm_prompt = config.get("dm_prompt_button", False)
-            trigger_on_dm = config.get("trigger_on_dm", False)
-            custom_message = config.get("dm_custom_message")
+            prompt_message = config.get("dm_prompt_message")
+            redirect_message = config.get("dm_redirect_message")
             
             try:
-                if trigger_on_dm:
-                    # Clean up old session
-                    old_session = self.sessions.get(message.author.id)
-                    if old_session:
-                        old_msg = old_session.get("message")
-                        if old_msg:
-                            try:
-                                await old_msg.delete()
-                            except Exception:
-                                pass
-                                
-                    embed, view = self.get_menu_embed_and_view("main_menu", user_id=message.author.id, guild_id=guild_id)
-                    
-                    content = custom_message if custom_message else None
-                    msg = await message.channel.send(content=content, embed=embed, view=view)
-                    
-                    self.sessions[message.author.id] = {
-                        "last_active": datetime.now(timezone.utc),
-                        "message": msg,
-                        "guild_id": guild_id
-                    }
-                elif dm_prompt:
-                    desc = custom_message if custom_message else "I noticed you're trying to send a message to Carrot. If you'd like to use the interactive assistant helper, click the button below to start our chat! Otherwise, please direct all applications/reports to <@501746915218554881>."
+                if dm_prompt:
+                    desc = prompt_message if prompt_message else "I noticed you're trying to send a message to Carrot. If you'd like to use the interactive assistant helper, click the button below to start our chat! Otherwise, please direct all applications/reports to <@501746915218554881>."
                     embed = discord.Embed(
                         title="🥕 Carrot Assistant Support",
                         description=desc,
@@ -351,7 +330,7 @@ class Chatbot(commands.Cog):
                     view = InitiateChatView(self)
                     await message.channel.send(embed=embed, view=view)
                 else:
-                    msg_text = custom_message if custom_message else "I noticed you're trying to send a message to Carrot. Please direct all your applications/questions/reports to <@501746915218554881>!"
+                    msg_text = redirect_message if redirect_message else "I noticed you're trying to send a message to Carrot. Please direct all your applications/questions/reports to <@501746915218554881>!"
                     await message.channel.send(msg_text)
             except Exception as e:
                 print(f"Failed to respond to user DM message: {e}")

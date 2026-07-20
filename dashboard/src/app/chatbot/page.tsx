@@ -146,8 +146,8 @@ type ChatbotConfig = {
   main_menu: ChatbotMenu;
   menus: { [key: string]: ChatbotMenu };
   dm_prompt_button?: boolean;
-  trigger_on_dm?: boolean;
-  dm_custom_message?: string | null;
+  dm_prompt_message?: string | null;
+  dm_redirect_message?: string | null;
 };
 
 export default function ChatbotPage() {
@@ -518,18 +518,18 @@ export default function ChatbotPage() {
                   <div className="bg-teal-950/10 border border-teal-500/10 rounded-lg p-4 flex items-center justify-between gap-4">
                     <div className="space-y-0.5">
                       <span className="text-sm text-gray-200 font-medium block">Trigger Chatbot on DM</span>
-                      <span className="text-xs text-gray-400">Trigger the chatbot automatically when a user DMs Carrot</span>
+                      <span className="text-xs text-gray-400">When users DM Carrot, reply with an interactive button to start the chatbot</span>
                     </div>
                     <label className="relative inline-flex items-center cursor-pointer shrink-0">
                       <input
                         type="checkbox"
                         disabled={isViewOnly}
-                        checked={config?.trigger_on_dm || false}
+                        checked={config?.dm_prompt_button || false}
                         onChange={(e) => {
                           if (!config) return;
                           setConfig({
                             ...config,
-                            trigger_on_dm: e.target.checked
+                            dm_prompt_button: e.target.checked
                           });
                         }}
                         className="sr-only peer disabled:opacity-50"
@@ -538,54 +538,43 @@ export default function ChatbotPage() {
                     </label>
                   </div>
 
-                  {!config?.trigger_on_dm && (
-                    <div className="bg-teal-950/10 border border-teal-500/10 rounded-lg p-4 flex items-center justify-between gap-4">
-                      <div className="space-y-0.5">
-                        <span className="text-sm text-gray-200 font-medium block">DM Prompt Button</span>
-                        <span className="text-xs text-gray-400">When users DM Carrot, reply with an interactive button to start the chatbot</span>
-                      </div>
-                      <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                        <input
-                          type="checkbox"
-                          disabled={isViewOnly}
-                          checked={config?.dm_prompt_button || false}
-                          onChange={(e) => {
-                            if (!config) return;
-                            setConfig({
-                              ...config,
-                              dm_prompt_button: e.target.checked
-                            });
-                          }}
-                          className="sr-only peer disabled:opacity-50"
-                        />
-                        <div className="w-11 h-6 bg-surface-darker peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-gray-500 after:border-gray-600 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-teal-500 peer-checked:after:bg-white border border-teal-900/40"></div>
-                      </label>
+                  {config?.dm_prompt_button ? (
+                    <div className="space-y-1.5 animate-in fade-in duration-200">
+                      <label className="text-xs text-gray-400 font-semibold uppercase tracking-wider block">Chatbot Prompt Message</label>
+                      <textarea
+                        disabled={isViewOnly}
+                        rows={3}
+                        value={config?.dm_prompt_message || ""}
+                        onChange={(e) => {
+                          if (!config) return;
+                          setConfig({
+                            ...config,
+                            dm_prompt_message: e.target.value || ""
+                          });
+                        }}
+                        className="w-full bg-surface-darker border border-teal-950/60 rounded-lg text-sm text-white px-3 py-2 focus:outline-none focus:border-teal-500/40 focus:ring-1 focus:ring-teal-500/40 transition-all font-sans leading-relaxed disabled:opacity-50 disabled:cursor-not-allowed"
+                        placeholder="Customize the prompt description message when recommending the chatbot..."
+                      />
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5 animate-in fade-in duration-200">
+                      <label className="text-xs text-gray-400 font-semibold uppercase tracking-wider block">Redirect Message</label>
+                      <textarea
+                        disabled={isViewOnly}
+                        rows={3}
+                        value={config?.dm_redirect_message || ""}
+                        onChange={(e) => {
+                          if (!config) return;
+                          setConfig({
+                            ...config,
+                            dm_redirect_message: e.target.value || ""
+                          });
+                        }}
+                        className="w-full bg-surface-darker border border-teal-950/60 rounded-lg text-sm text-white px-3 py-2 focus:outline-none focus:border-teal-500/40 focus:ring-1 focus:ring-teal-500/40 transition-all font-sans leading-relaxed disabled:opacity-50 disabled:cursor-not-allowed"
+                        placeholder="Customize the redirect/warning text when chatbot is disabled..."
+                      />
                     </div>
                   )}
-
-                  <div className="space-y-1.5">
-                    <label className="text-xs text-gray-400 font-semibold uppercase tracking-wider block">Custom DM Message</label>
-                    <textarea
-                      disabled={isViewOnly}
-                      rows={3}
-                      value={config?.dm_custom_message || ""}
-                      onChange={(e) => {
-                        if (!config) return;
-                        setConfig({
-                          ...config,
-                          dm_custom_message: e.target.value || ""
-                        });
-                      }}
-                      className="w-full bg-surface-darker border border-teal-950/60 rounded-lg text-sm text-white px-3 py-2 focus:outline-none focus:border-teal-500/40 focus:ring-1 focus:ring-teal-500/40 transition-all font-sans leading-relaxed disabled:opacity-50 disabled:cursor-not-allowed"
-                      placeholder={
-                        config?.trigger_on_dm
-                          ? "Optional: Custom text message sent alongside the chatbot menu..."
-                          : config?.dm_prompt_button
-                          ? "Customize the prompt description message when recommending the chatbot..."
-                          : "Customize the redirect redirect/warning text when chatbot is disabled..."
-                      }
-                    />
-                  </div>
                 </div>
               )}
 

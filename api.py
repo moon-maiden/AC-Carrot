@@ -1134,8 +1134,8 @@ class ChatbotConfigUpdate(BaseModel):
     main_menu: ChatbotMenuData
     menus: Optional[dict] = None
     dm_prompt_button: Optional[bool] = False
-    trigger_on_dm: Optional[bool] = False
-    dm_custom_message: Optional[str] = None
+    dm_prompt_message: Optional[str] = None
+    dm_redirect_message: Optional[str] = None
 
 @app.get("/api/guilds/{guild_id}/chatbot")
 async def get_chatbot(guild_id: int, access_level: str = Depends(requires_view_access)):
