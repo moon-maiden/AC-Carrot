@@ -174,7 +174,7 @@ class PaidRequestModal(discord.ui.Modal):
             is_valid_currency = any(code.strip().upper() in budget_upper for code in accepted_curr.split(","))
             if not is_valid_currency:
                 # also check for common symbols dynamically via the accepted string if we want, or just enforce strict
-                is_valid_currency = any(symbol in budget_val for symbol in ["$", "£", "€", "¥", "₱", "Rp"])
+                is_valid_currency = any(symbol in budget_val for symbol in ["£", "€", "¥", "₱", "Rp"])
             
             if not is_valid_currency:
                 if "$" in budget_val:
