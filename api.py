@@ -1308,13 +1308,16 @@ async def send_builder_message(guild_id: int, data: MessageBuilderSend, access_l
                 raise HTTPException(status_code=403, detail="Bot is missing permission to edit or fetch this message.")
         
         # Send Mode (New Message)
-        flags = discord.MessageFlags()
-        if data.suppress_notifications:
-            flags.suppress_notifications = True
-        
         send_kwargs = {"content": data.message_text or None, "embeds": embeds or None}
-        if flags.value != 0:
-            send_kwargs["flags"] = flags
+        if data.suppress_notifications:
+            import inspect
+            sig = inspect.signature(channel.send)
+            if "silent" in sig.parameters:
+                send_kwargs["silent"] = True
+            elif "flags" in sig.parameters:
+                flags = discord.MessageFlags()
+                flags.suppress_notifications = True
+                send_kwargs["flags"] = flags
             
         msg = await channel.send(**send_kwargs)
         
