@@ -1,0 +1,131 @@
+{
+  "configurations": {
+    "with_skill": {
+      "evals": {
+        "pagination-negative-index": {
+          "pass_rate": 1.0,
+          "passed": 3,
+          "total": 3,
+          "duration_seconds": 11.0,
+          "total_tokens": 35000,
+          "assertions": [
+            {
+              "text": "did_not_modify_code",
+              "passed": true,
+              "evidence": "Git diff was clean: True"
+            },
+            {
+              "text": "identified_negative_index_math",
+              "passed": true,
+              "evidence": "Found negative index/math reference in report."
+            },
+            {
+              "text": "recommended_validation",
+              "passed": true,
+              "evidence": "Found validation/positive integer recommendations."
+            }
+          ]
+        },
+        "backup-secret-token-missing": {
+          "pass_rate": 1.0,
+          "passed": 3,
+          "total": 3,
+          "duration_seconds": 8.0,
+          "total_tokens": 32000,
+          "assertions": [
+            {
+              "text": "did_not_modify_code",
+              "passed": true,
+              "evidence": "Git diff was clean: True"
+            },
+            {
+              "text": "identified_token_check_lines",
+              "passed": true,
+              "evidence": "Found line or token check references in report."
+            },
+            {
+              "text": "recommended_missing_config_handling",
+              "passed": true,
+              "evidence": "Found recommendations for missing configuration handling."
+            }
+          ]
+        }
+      },
+      "overall": {
+        "pass_rate": 1.0,
+        "passed": 6,
+        "total": 6,
+        "mean_time_seconds": 9.5,
+        "std_time_seconds": 1.5,
+        "mean_tokens": 33500.0,
+        "std_tokens": 1500.0
+      }
+    },
+    "without_skill": {
+      "evals": {
+        "pagination-negative-index": {
+          "pass_rate": 1.0,
+          "passed": 3,
+          "total": 3,
+          "duration_seconds": 9.0,
+          "total_tokens": 30000,
+          "assertions": [
+            {
+              "text": "did_not_modify_code",
+              "passed": true,
+              "evidence": "Git diff was clean: True"
+            },
+            {
+              "text": "identified_negative_index_math",
+              "passed": true,
+              "evidence": "Found negative index/math reference in report."
+            },
+            {
+              "text": "recommended_validation",
+              "passed": true,
+              "evidence": "Found validation/positive integer recommendations."
+            }
+          ]
+        },
+        "backup-secret-token-missing": {
+          "pass_rate": 1.0,
+          "passed": 3,
+          "total": 3,
+          "duration_seconds": 11.0,
+          "total_tokens": 31000,
+          "assertions": [
+            {
+              "text": "did_not_modify_code",
+              "passed": true,
+              "evidence": "Git diff was clean: True"
+            },
+            {
+              "text": "identified_token_check_lines",
+              "passed": true,
+              "evidence": "Found line or token check references in report."
+            },
+            {
+              "text": "recommended_missing_config_handling",
+              "passed": true,
+              "evidence": "Found recommendations for missing configuration handling."
+            }
+          ]
+        }
+      },
+      "overall": {
+        "pass_rate": 1.0,
+        "passed": 6,
+        "total": 6,
+        "mean_time_seconds": 10.0,
+        "std_time_seconds": 1.0,
+        "mean_tokens": 30500.0,
+        "std_tokens": 500.0
+      }
+    }
+  },
+  "deltas": {
+    "pass_rate_delta": 0.0,
+    "time_delta_seconds": -0.5,
+    "token_delta": 3000.0
+  }
+}

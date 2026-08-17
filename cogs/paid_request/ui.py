@@ -168,48 +168,76 @@ class PaidRequestModal(discord.ui.Modal):
         # 2. Check if detects a number/digit
         has_digit = any(c.isdigit() for c in budget_val)
         
-        if has_digit:
-            accepted_curr = config.get("accepted_currencies") or "USD"
-            # allow checking symbols or codes
-            is_valid_currency = any(code.strip().upper() in budget_upper for code in accepted_curr.split(","))
-            if not is_valid_currency:
-                # also check for common symbols dynamically via the accepted string if we want, or just enforce strict
-                is_valid_currency = any(symbol in budget_val for symbol in ["£", "€", "¥", "₱", "Rp"])
+        if not has_digit:
+            error_label = "SPECIFY NUMBER (e.g. 50 USD)"
+            error_msg = "⚠️ **Specify a Number**\nYou did not specify a numeric value for the budget (e.g. **50 USD** or **30-50$ USD**).\n\nClick the button below to correct your input."
+            view = discord.ui.View(timeout=180)
+            fix_btn = discord.ui.Button(label="Correct Budget", style=discord.ButtonStyle.primary)
             
-            if not is_valid_currency:
-                if "$" in budget_val:
-                    error_label = "SPECIFY USD/AUD/CAD/etc."
-                    error_msg = "⚠️ **Specify Dollar Currency**\nYou used the '$' symbol with a number, but did not specify which dollar currency it is (e.g. **USD, AUD, CAD, NZD**).\n\nClick the button below to specify the currency."
-                else:
-                    error_label = "SPECIFY CURRENCY (USD/AUD/etc)"
-                    error_msg = "⚠️ **Specify Currency**\nYou only wrote a number. Please specify which currency it is (e.g. **USD, AUD, CAD, NZD, EUR, GBP, JPY**).\n\nClick the button below to specify the currency."
+            async def fix_callback(btn_interaction: discord.Interaction):
+                await btn_interaction.response.send_modal(PaidRequestModal(
+                    request_id=self.request_id,
+                    budget_val=self.budget.value,
+                    sfw_nsfw_val=self.sfw_nsfw.value,
+                    payment_method_val=self.payment_method.value,
+                    use_case_val=self.use_case.value,
+                    content_val=self.content.value,
+                    review_msg_id=self.review_msg_id,
+                    dm_msg=self.dm_msg,
+                    budget_error=error_label,
+                    guild_id=guild_id
+                ))
+            
+            fix_btn.callback = fix_callback
+            view.add_item(fix_btn)
+            
+            await interaction.followup.send(
+                error_msg,
+                view=view,
+                ephemeral=True
+            )
+            return
+            
+        # 3. Check for currency code/symbol
+        accepted_curr = config.get("accepted_currencies") or "USD"
+        is_valid_currency = any(code.strip().upper() in budget_upper for code in accepted_curr.split(","))
+        if not is_valid_currency:
+            is_valid_currency = any(symbol in budget_val for symbol in ["£", "€", "¥", "₱", "Rp"])
+            
+        if not is_valid_currency:
+            if "$" in budget_val:
+                error_label = "SPECIFY USD/AUD/CAD/etc."
+                error_msg = "⚠️ **Specify Dollar Currency**\nYou used the '$' symbol with a number, but did not specify which dollar currency it is (e.g. **USD, AUD, CAD, NZD**).\n\nClick the button below to specify the currency."
+            else:
+                error_label = "SPECIFY CURRENCY (USD/AUD/etc)"
+                error_msg = "⚠️ **Specify Currency**\nYou only wrote a number. Please specify which currency it is (e.g. **USD, AUD, CAD, NZD, EUR, GBP, JPY**).\n\nClick the button below to specify the currency."
 
-                view = discord.ui.View(timeout=180)
-                fix_btn = discord.ui.Button(label="Specify Currency", style=discord.ButtonStyle.primary)
-                
-                async def fix_callback(btn_interaction: discord.Interaction):
-                    await btn_interaction.response.send_modal(PaidRequestModal(
-                        request_id=self.request_id,
-                        budget_val=self.budget.value,
-                        sfw_nsfw_val=self.sfw_nsfw.value,
-                        payment_method_val=self.payment_method.value,
-                        use_case_val=self.use_case.value,
-                        content_val=self.content.value,
-                        review_msg_id=self.review_msg_id,
-                        dm_msg=self.dm_msg,
-                        budget_error=error_label,
-                        guild_id=guild_id
-                    ))
-                
-                fix_btn.callback = fix_callback
-                view.add_item(fix_btn)
-                
-                await interaction.followup.send(
-                    error_msg,
-                    view=view,
-                    ephemeral=True
-                )
-                return
+            view = discord.ui.View(timeout=180)
+            fix_btn = discord.ui.Button(label="Specify Currency", style=discord.ButtonStyle.primary)
+            
+            async def fix_callback(btn_interaction: discord.Interaction):
+                await btn_interaction.response.send_modal(PaidRequestModal(
+                    request_id=self.request_id,
+                    budget_val=self.budget.value,
+                    sfw_nsfw_val=self.sfw_nsfw.value,
+                    payment_method_val=self.payment_method.value,
+                    use_case_val=self.use_case.value,
+                    content_val=self.content.value,
+                    review_msg_id=self.review_msg_id,
+                    dm_msg=self.dm_msg,
+                    budget_error=error_label,
+                    guild_id=guild_id
+                ))
+            
+            fix_btn.callback = fix_callback
+            view.add_item(fix_btn)
+            
+            await interaction.followup.send(
+                error_msg,
+                view=view,
+                ephemeral=True
+            )
+            return
             
         if is_edit:
             req_id = self.request_id
@@ -379,8 +407,8 @@ class RejectReasonModal(discord.ui.Modal, title="Reason for Rejection"):
             log_embed.add_field(name="Rejected By", value=f"{interaction.user.name} [{interaction.user.id}]", inline=False)
             log_embed.add_field(name="Reason", value=reason_val, inline=False)
             
-            now_str = datetime.now().strftime('%d %B %Y %H:%M')
-            log_embed.add_field(name="Timestamp", value=f"`{now_str}`", inline=False)
+            discord_ts = f"<t:{int(datetime.now().timestamp())}:f>"
+            log_embed.add_field(name="Timestamp", value=discord_ts, inline=False)
             log_embed.add_field(name="ID", value=str(self.request_id), inline=False)
             
             await log_channel.send(embed=log_embed)

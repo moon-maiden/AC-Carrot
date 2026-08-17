@@ -1,0 +1,82 @@
+[
+  {
+    "query": "The warning tracker context menu is throwing a TypeError when clicking on messages with no content. Can you investigate why?",
+    "should_trigger": true
+  },
+  {
+    "query": "FastAPI is returning a 500 Internal Server Error on /api/guilds/123/stats. The log shows a KeyError: 'member_count'. Where is this happening?",
+    "should_trigger": true
+  },
+  {
+    "query": "Our reminders system is not pinging users in the right channel. Look through the database and reminders logic to find where the bug is, but don't change anything yet.",
+    "should_trigger": true
+  },
+  {
+    "query": "I ran the sync_warnings command and got a database locked error. Can you troubleshoot this database issue?",
+    "should_trigger": true
+  },
+  {
+    "query": "The paid request submission form modal crashes when a user inputs a budget exceeding 5 figures. Find out why it's breaking.",
+    "should_trigger": true
+  },
+  {
+    "query": "Why does the chatbot initiating button fail to register? Here is the trace: AttributeError: 'NoneType' object has no attribute 'guild'. Pinpoint the line.",
+    "should_trigger": true
+  },
+  {
+    "query": "We have a bug where the verbal reasons are not loading for guild ID 0. Check database.py and report the failure point.",
+    "should_trigger": true
+  },
+  {
+    "query": "A user complained that they didn't receive a DM reminder for their pending commission. Trace the commission notifier flow to locate the bug.",
+    "should_trigger": true
+  },
+  {
+    "query": "Can you run a check on the vacation registration endpoint? It seems to allow start dates in the past. Find the logic flaw.",
+    "should_trigger": true
+  },
+  {
+    "query": "Help me debug this FastAPI traceback: RecursionError in api.py. Find the function causing it.",
+    "should_trigger": true
+  },
+  {
+    "query": "Add validation to the get_warnings endpoint in api.py to restrict the page and limit query parameters to positive integers.",
+    "should_trigger": false
+  },
+  {
+    "query": "Fix the backup secret token check in api.py so it logs a warning and returns 403 when the token is missing.",
+    "should_trigger": false
+  },
+  {
+    "query": "Create a unit test for the get_warnings pagination logic in api.py.",
+    "should_trigger": false
+  },
+  {
+    "query": "Implement a new feature in the Discord bot to automatically mute users who get more than 3 warnings in a week.",
+    "should_trigger": false
+  },
+  {
+    "query": "Optimize the database query in database.py for get_warnings_paginated to run faster by adding an index.",
+    "should_trigger": false
+  },
+  {
+    "query": "Refactor the get_cached_user function in api.py to use Redis instead of an in-memory dictionary.",
+    "should_trigger": false
+  },
+  {
+    "query": "Write a script to seed the database with 100 mock warnings for testing.",
+    "should_trigger": false
+  },
+  {
+    "query": "Update terms_of_service.md to include our new warning and mute policies.",
+    "should_trigger": false
+  },
+  {
+    "query": "Add a new button to the paid requests modal allowing users to cancel their submission.",
+    "should_trigger": false
+  },
+  {
+    "query": "Dockerize our FastAPI dashboard and set up a dev compose file.",
+    "should_trigger": false
+  }
+]

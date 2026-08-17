@@ -1,0 +1,19 @@
+{
+  "expectations": [
+    {
+      "text": "did_not_modify_code",
+      "passed": true,
+      "evidence": "Git diff was clean: True"
+    },
+    {
+      "text": "identified_token_check_lines",
+      "passed": true,
+      "evidence": "Found line or token check references in report."
+    },
+    {
+      "text": "recommended_missing_config_handling",
+      "passed": true,
+      "evidence": "Found recommendations for missing configuration handling."
+    }
+  ]
+}

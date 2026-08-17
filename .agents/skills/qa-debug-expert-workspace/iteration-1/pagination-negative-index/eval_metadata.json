@@ -1,0 +1,19 @@
+{
+  "eval_id": 0,
+  "eval_name": "pagination-negative-index",
+  "prompt": "In the get_warnings endpoint in api.py, if the client sends a page query parameter of 0 or negative, the pagination logic computes a negative index, returning the last elements of the warnings list. Find the root cause of this behavior and suggest how to restrict page and limit to positive integers. Remember, do NOT fix the bug yourself—just locate and explain it.",
+  "assertions": [
+    {
+      "name": "did_not_modify_code",
+      "description": "Verifies that the agent did not make any edits to the source code files."
+    },
+    {
+      "name": "identified_negative_index_math",
+      "description": "Verifies that the report explains how page <= 0 results in a negative starting index."
+    },
+    {
+      "name": "recommended_validation",
+      "description": "Verifies that the agent proposes validating page and limit as positive integers."
+    }
+  ]
+}

@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QA / Debug Expert Eval Review</title>
+    <style>
+        :root {
+            --bg-primary: #121214;
+            --bg-secondary: #1a1a1e;
+            --text-primary: #f3f4f6;
+            --text-secondary: #9ca3af;
+            --accent: #3b82f6;
+            --accent-hover: #2563eb;
+            --border: #2d2d34;
+            --success: #10b981;
+            --failure: #ef4444;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            margin: 0;
+            padding: 0;
+            line-height: 1.6;
+        }
+        header {
+            background-color: var(--bg-secondary);
+            padding: 1.5rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        h1 {
+            margin: 0;
+            font-size: 1.5rem;
+        }
+        .tabs {
+            display: flex;
+            background-color: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+        }
+        .tab-btn {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            padding: 1rem 2rem;
+            font-size: 1rem;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+        }
+        .tab-btn.active {
+            color: var(--accent);
+            border-bottom-color: var(--accent);
+            background-color: rgba(59, 130, 246, 0.05);
+        }
+        .container {
+            max-width: 1200px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+        }
+        .panel {
+            display: none;
+        }
+        .panel.active {
+            display: block;
+        }
+        .eval-selector {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+        .eval-btn {
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.375rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .eval-btn.active {
+            background-color: var(--accent);
+            border-color: var(--accent);
+        }
+        .card {
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 0.5rem;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        .split-view {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+        }
+        .report-box {
+            background-color: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: 0.375rem;
+            padding: 1rem;
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 0.9rem;
+            max-height: 500px;
+            overflow-y: auto;
+        }
+        .grading-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+        .status-dot.passed { background-color: var(--success); }
+        .status-dot.failed { background-color: var(--failure); }
+        textarea {
+            width: 100%;
+            background-color: var(--bg-primary);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            padding: 0.75rem;
+            border-radius: 0.375rem;
+            resize: vertical;
+            min-height: 100px;
+            margin-bottom: 1rem;
+            font-family: inherit;
+        }
+        button.action-btn {
+            background-color: var(--accent);
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            font-size: 1rem;
+            border-radius: 0.375rem;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        button.action-btn:hover {
+            background-color: var(--accent-hover);
+        }
+        pre {
+            background-color: var(--bg-primary);
+            padding: 1rem;
+            border-radius: 0.375rem;
+            overflow-x: auto;
+            border: 1px solid var(--border);
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>QA / Debug Expert Eval Review</h1>
+        <button class="action-btn" onclick="downloadFeedback()">Download feedback.json</button>
+    </header>
+    <div class="tabs">
+        <button class="tab-btn active" onclick="switchTab('outputs')">Outputs</button>
+        <button class="tab-btn" onclick="switchTab('benchmark')">Benchmark</button>
+    </div>
+    <div class="container">
+        <!-- Outputs Panel -->
+        <div id="panel-outputs" class="panel active">
+            <div class="eval-selector">
+                <button class="eval-btn" id="btn-pagination-negative-index" onclick="switchEval('pagination-negative-index')">Pagination Negative Index</button><button class="eval-btn" id="btn-backup-secret-token-missing" onclick="switchEval('backup-secret-token-missing')">Backup Secret Token Missing</button>
+            </div>
+            
+            <div class="card">
+                <h3>Prompt</h3>
+                <p id="eval-prompt" style="font-style: italic; color: var(--text-secondary);"></p>
+            </div>
+            
+            <div class="split-view">
+                <div>
+                    <h3>With Skill</h3>
+                    <div class="card">
+                        <h4>Grading Assertions</h4>
+                        <div id="with-skill-grading"></div>
+                    </div>
+                    <div class="report-box" id="with-skill-report"></div>
+                </div>
+                <div>
+                    <h3>Baseline (Without Skill)</h3>
+                    <div class="card">
+                        <h4>Grading Assertions</h4>
+                        <div id="without-skill-grading"></div>
+                    </div>
+                    <div class="report-box" id="without-skill-report"></div>
+                </div>
+            </div>
+            
+            <div class="card" style="margin-top: 2rem;">
+                <h3>Leave Feedback for this Eval Case</h3>
+                <textarea id="feedback-input" placeholder="Type your qualitative feedback here..." oninput="saveFeedback()"></textarea>
+            </div>
+        </div>
+        
+        <!-- Benchmark Panel -->
+        <div id="panel-benchmark" class="panel">
+            <div class="card">
+                <h3>Benchmark Summary</h3>
+                <pre># QA / Debug Expert Skill Benchmark Report
+
+## Overall Summary
+
+| Metric | With Skill | Baseline (Without Skill) | Delta |
+| :--- | :--- | :--- | :--- |
+| **Pass Rate** | 100.0% (6/6) | 100.0% (6/6) | +0.0% |
+| **Mean Time** | 9.50s ± 1.50s | 10.00s ± 1.00s | -0.50s |
+| **Mean Tokens** | 33500 ± 1500 | 30500 ± 500 | +3000 |
+
+## Per-Eval Breakdown
+
+### 1. Pagination Negative Index
+* **With Skill:** Pass Rate: 100%, Time: 11.0s, Tokens: 35000
+* **Without Skill:** Pass Rate: 100%, Time: 9.0s, Tokens: 30000
+
+### 2. Backup Secret Token Missing
+* **With Skill:** Pass Rate: 100%, Time: 8.0s, Tokens: 32000
+* **Without Skill:** Pass Rate: 100%, Time: 11.0s, Tokens: 31000
+</pre>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const evalData = {"pagination-negative-index": {"name": "Pagination Negative Index", "prompt": "In the get_warnings endpoint in api.py, if the client sends a page query parameter of 0 or negative, the pagination logic computes a negative index, returning the last elements of the warnings list. Find the root cause of this behavior and suggest how to restrict page and limit to positive integers. Remember, do NOT fix the bug yourself\u2014just locate and explain it.", "with_skill": {"report": "# Bug Diagnostics Report\n\n## Executive Summary\nIn the `get_warnings` endpoint (and similarly `get_paid_requests`) of [api.py](file:///d:/Python%20Project/AC%20Carrot/api.py), input parameters `page` and `limit` are not validated to be positive integers. When a client passes `page <= 0` (e.g. `page=0` or `page=-1`), the start index computation `(page - 1) * limit` results in a negative number. When sliced against the `filtered_warnings` list, Python interprets the negative index as counting backwards from the end of the sequence, leading to unexpected pagination results containing elements from the end of the list.\n\n## Reproduction Steps\nA request can be made to the warnings API with `page=0` or a negative value:\n```http\nGET /api/guilds/123/warnings?page=0&limit=10\nAuthorization: Bearer <token>\n```\n1. `start = (0 - 1) * 10 = -10`\n2. `end = -10 + 10 = 0`\n3. Slicing `filtered_warnings[-10:0]` returns the last 10 elements of the warnings list instead of the first page.\n\n## Root Cause Analysis\n* **Location:** [`api.py` (L303-304)](file:///d:/Python%20Project/AC%20Carrot/api.py#L303-L304) and [`api.py` (L399-401)](file:///d:/Python%20Project/AC%20Carrot/api.py#L399-L401).\n* **Issue:** \n  In the endpoint definition:\n  ```python\n  @app.get(\"/api/guilds/{guild_id}/warnings\")\n  async def get_warnings(\n      request: Request, \n      guild_id: int, \n      page: int = 1, \n      limit: int = 10, \n      ...\n  ):\n  ```\n  The values for `page` and `limit` are typed as `int` but not constrained.\n  Then, the slice calculation:\n  ```python\n  start = (page - 1) * limit\n  end = start + limit\n  page_warnings = filtered_warnings[start:end]\n  ```\n  computes `start` and `end` as negative integers when `page <= 0` (and `limit > 0`), which triggers Python's negative list slicing.\n\n## Recommendations for the Fix\n\n### Option 1: Pydantic / FastAPI Query Parameters Constraints (Recommended)\nFastAPI can automatically validate query parameters using FastAPI's `Query` class and Pydantic constraints. This is the cleanest approach as it yields a structured `422 Unprocessable Entity` validation error before the handler code executes.\n\n```python\nfrom fastapi import Query\n\n# In get_warnings signature:\n    page: int = Query(default=1, ge=1),\n    limit: int = Query(default=10, ge=1, le=100),\n```\n\n### Option 2: Inline Validation and Defaulting\nAlternatively, enforce a lower bound within the endpoint body:\n\n```python\npage = max(1, page)\nlimit = max(1, limit)\n```\n", "grading": [{"text": "did_not_modify_code", "passed": true, "evidence": "Git diff was clean: True"}, {"text": "identified_negative_index_math", "passed": true, "evidence": "Found negative index/math reference in report."}, {"text": "recommended_validation", "passed": true, "evidence": "Found validation/positive integer recommendations."}]}, "without_skill": {"report": "# Bug analysis: Negative index pagination in `/api/guilds/{guild_id}/warnings`\n\n## 1. Root cause analysis\nIn [`api.py`](file:///d:/Python%20Project/AC%20Carrot/api.py), the `get_warnings` endpoint (defined around line 300) accepts `page` and `limit` query parameters with default values of `1` and `10` respectively:\n\n```python\n@app.get(\"/api/guilds/{guild_id}/warnings\")\nasync def get_warnings(\n    request: Request, \n    guild_id: int, \n    page: int = 1, \n    limit: int = 10, \n    ...\n):\n```\n\nLater, at line 399-401, the pagination slicing indexes are computed and applied to the `filtered_warnings` list:\n\n```python\n    # Apply Pagination\n    start = (page - 1) * limit\n    end = start + limit\n    page_warnings = filtered_warnings[start:end]\n```\n\n### The behavior under 0 or negative values:\n1. **If `page = 0` (assuming `limit = 10`):**\n   * `start = (0 - 1) * 10 = -10`\n   * `end = -10 + 10 = 0`\n   * Slicing expression: `filtered_warnings[-10:0]`\n   * In Python, a negative start index in a slice slices relative to the end of the list. However, because the end index is `0`, this slice starts 10 elements from the end and goes up to (but not including) index `0` (which is the beginning). Consequently, this returns an empty list `[]`.\n\n2. **If `page < 0` (e.g., `page = -1`, `limit = 10`):**\n   * `start = (-1 - 1) * 10 = -20`\n   * `end = -20 + 10 = -10`\n   * Slicing expression: `filtered_warnings[-20:-10]`\n   * This slices from the 20th element from the end of the list up to the 10th element from the end of the list, returning elements from the end of the warnings list.\n\nIn Python, list slicing accepts negative indices without raising an `IndexError`. Because FastAPI does not validate that `page` or `limit` are strictly positive integers, clients can send arbitrary integer values, leading to unexpected slice behavior.\n\n---\n\n## 2. Proposed solution\nTo restrict `page` and `limit` parameters to positive integers, we can utilize FastAPI's native query validation helper `Query` (imported from `fastapi`).\n\nWe can constrain:\n* `page` to be greater than or equal to 1 (`ge=1`).\n* `limit` to be greater than or equal to 1 (`ge=1`) and optionally add a maximum limit limit (e.g., `le=100`) to prevent denial-of-service/heavy database queries.\n\n### Suggested code modifications (Not yet applied)\n\n1. Import `Query` from `fastapi`:\n   ```python\n   from fastapi import Query\n   ```\n\n2. Update the endpoint signature in [`api.py`](file:///d:/Python%20Project/AC%20Carrot/api.py):\n   ```python\n   @app.get(\"/api/guilds/{guild_id}/warnings\")\n   async def get_warnings(\n       request: Request, \n       guild_id: int, \n       page: int = Query(default=1, ge=1, description=\"Page number, must be >= 1\"), \n       limit: int = Query(default=10, ge=1, le=100, description=\"Items per page, must be between 1 and 100\"), \n       sort_key: str = \"id\", \n       sort_dir: str = \"desc\", \n       search: str = \"\", \n       staff: str = \"\",\n       access_level: str = Depends(requires_view_access)\n   ):\n   ```\n\nWith this change, if a client sends `page=0` or `page=-5`, FastAPI will automatically reject the request with a `422 Unprocessable Entity` status code and return a clear error validation detail explaining that the value must be greater than or equal to 1.\n", "grading": [{"text": "did_not_modify_code", "passed": true, "evidence": "Git diff was clean: True"}, {"text": "identified_negative_index_math", "passed": true, "evidence": "Found negative index/math reference in report."}, {"text": "recommended_validation", "passed": true, "evidence": "Found validation/positive integer recommendations."}]}}, "backup-secret-token-missing": {"name": "Backup Secret Token Missing", "prompt": "The backup endpoint in api.py returns 403 Forbidden when BACKUP_SECRET_TOKEN is not configured in the environment variables. Locate the source of this check and recommend how to handle a missing token configuration. Do NOT fix the bug yourself.", "with_skill": {"report": "# Bug Diagnostics Report\n\n## Executive Summary\nWhen calling the `/api/admin/backup` endpoint to download database and attachments backup files, the API returns a `403 Forbidden` response if the environment variable `BACKUP_SECRET_TOKEN` is not configured. \n\n## Reproduction Steps\n1. Start the API application without configuring `BACKUP_SECRET_TOKEN` in the environment variables:\n   ```bash\n   # Make sure BACKUP_SECRET_TOKEN is unset\n   # Run the api service\n   uvicorn api:app --reload\n   ```\n2. Request the backup endpoint with or without a token parameter:\n   ```bash\n   curl \"http://localhost:8000/api/admin/backup?token=anything\"\n   ```\n3. Observe the response:\n   - HTTP status code `403 Forbidden`\n   - Response body: `{\"detail\": \"Forbidden: Invalid or missing token\"}`\n\n## Root Cause Analysis\n- **Location:** [`api.py`](file:///d:/Python%20Project/AC%20Carrot/api.py#L47-L51)\n- **Issue:** \n  In the `download_backup` endpoint handler:\n  ```python\n  @app.get(\"/api/admin/backup\")\n  async def download_backup(background_tasks: BackgroundTasks, token: str = None):\n      expected_token = os.getenv(\"BACKUP_SECRET_TOKEN\")\n      if not expected_token or token != expected_token:\n          raise HTTPException(status_code=403, detail=\"Forbidden: Invalid or missing token\")\n  ```\n  If `BACKUP_SECRET_TOKEN` is not set in the environment variables, `expected_token` resolves to `None`. In this case:\n  - If `token` is missing or set to any value, the condition `not expected_token` evaluates to `True`.\n  - The check immediately raises a `403 Forbidden` exception, rendering the endpoint unusable regardless of what token is provided in the query string.\n\n## Technical Details\nThe environment variable `BACKUP_SECRET_TOKEN` is loaded dynamically from the environment on each request via `os.getenv(\"BACKUP_SECRET_TOKEN\")`. When it is missing, `expected_token` is `None`. Because the condition evaluates `not expected_token` first, the request is rejected before verifying `token == expected_token`.\n\n## Recommendations for the Fix\nTo handle a missing token configuration, you can implement one of the following strategies:\n\n### Option 1: Disable the backup endpoint when no secret token is configured\nRaise a `501 Not Implemented` or `503 Service Unavailable` error explaining that backup services are not configured. This avoids exposing a broken endpoint with a generic `403` status.\n```python\nexpected_token = os.getenv(\"BACKUP_SECRET_TOKEN\")\nif not expected_token:\n    raise HTTPException(status_code=503, detail=\"Backup service is not configured on this server.\")\nif token != expected_token:\n    raise HTTPException(status_code=403, detail=\"Forbidden: Invalid token\")\n```\n\n### Option 2: Fall back to a default token or warn during startup\nCheck for the variable presence during application startup or log a warning if it is not configured.\n", "grading": [{"text": "did_not_modify_code", "passed": true, "evidence": "Git diff was clean: True"}, {"text": "identified_token_check_lines", "passed": true, "evidence": "Found line or token check references in report."}, {"text": "recommended_missing_config_handling", "passed": true, "evidence": "Found recommendations for missing configuration handling."}]}, "without_skill": {"report": "# Bug diagnostics report\n\n## Executive summary\nThe backup endpoint fails with a 403 Forbidden status code when the system is missing the BACKUP_SECRET_TOKEN environment variable. This happens even if a user supplies a valid token, since there is no configured value to compare against. The API should ideally notify administrators about the missing configuration rather than returning a generic authentication failure.\n\n## Reproduction steps\n1. Start the application without setting the BACKUP_SECRET_TOKEN environment variable.\n2. Send a GET request to `/api/admin/backup` with any token value, or without a token.\n3. The server responds with `403 Forbidden` and the message \"Forbidden: Invalid or missing token\".\n\n## Root cause analysis\nThe source of this check is located in [api.py](file:///d:/Python%20Project/AC%20Carrot/api.py#L47-L51) inside the `download_backup` function.\n\nThe code retrieves the token from the environment:\n```python\nexpected_token = os.getenv(\"BACKUP_SECRET_TOKEN\")\nif not expected_token or token != expected_token:\n    raise HTTPException(status_code=403, detail=\"Forbidden: Invalid or missing token\")\n```\nWhen BACKUP_SECRET_TOKEN is not in the environment, `os.getenv` returns `None`. Because `not expected_token` evaluates to `True`, the condition is met and the endpoint returns a 403 status code.\n\n## Technical details\nBelow is the behavior of the condition under different configurations:\n- When BACKUP_SECRET_TOKEN is undefined, `expected_token` is `None`. The condition `not expected_token` is true, and the route returns 403.\n- When BACKUP_SECRET_TOKEN is set to an empty string, `expected_token` is `\"\"`. The condition `not expected_token` is true, and the route returns 403.\n\n## Recommendations for the fix\nTo handle the missing configuration, we recommend:\n1. Log a warning during server startup if BACKUP_SECRET_TOKEN is not configured.\n2. Return a 500 Internal Server Error (or a 503 Service Unavailable) with a message indicating that the backup service is not configured, instead of a 403 Forbidden. This distinguishes a configuration error from an authentication failure.\n3. Alternatively, if backup functionality is optional, return a 501 Not Implemented or 404 Not Found error with a message explaining that backup is disabled.\n", "grading": [{"text": "did_not_modify_code", "passed": true, "evidence": "Git diff was clean: True"}, {"text": "identified_token_check_lines", "passed": true, "evidence": "Found line or token check references in report."}, {"text": "recommended_missing_config_handling", "passed": true, "evidence": "Found recommendations for missing configuration handling."}]}}};
+        let currentEvalId = "pagination-negative-index";
+        const feedbacks = {};
+
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.panel').forEach(panel => panel.classList.remove('active'));
+            
+            event.target.classList.add('active');
+            document.getElementById('panel-' + tabId).classList.add('active');
+        }
+
+        function switchEval(evalId) {
+            currentEvalId = evalId;
+            document.querySelectorAll('.eval-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById('btn-' + evalId).classList.add('active');
+            
+            renderEval();
+        }
+
+        function renderEval() {
+            const data = evalData[currentEvalId];
+            document.getElementById('eval-prompt').innerText = data.prompt;
+            document.getElementById('with-skill-report').innerText = data.with_skill.report;
+            document.getElementById('without-skill-report').innerText = data.without_skill.report;
+            
+            renderGrading('with-skill-grading', data.with_skill.grading);
+            renderGrading('without-skill-grading', data.without_skill.grading);
+            
+            document.getElementById('feedback-input').value = feedbacks[currentEvalId] || "";
+        }
+
+        function renderGrading(elementId, grading) {
+            const container = document.getElementById(elementId);
+            container.innerHTML = "";
+            if (!grading || grading.length === 0) {
+                container.innerHTML = "<p style='color: var(--text-secondary); margin:0;'>No assertions run</p>";
+                return;
+            }
+            grading.forEach(g => {
+                const item = document.createElement('div');
+                item.className = 'grading-item';
+                item.innerHTML = `
+                    <span class="status-dot ${g.passed ? 'passed' : 'failed'}"></span>
+                    <strong>${g.text}</strong>: ${g.evidence}
+                `;
+                container.appendChild(item);
+            });
+        }
+
+        function saveFeedback() {
+            feedbacks[currentEvalId] = document.getElementById('feedback-input').value;
+        }
+
+        function downloadFeedback() {
+            const output = {
+                "reviews": Object.keys(evalData).map(k => ({
+                    "run_id": k + "-with_skill",
+                    "feedback": feedbacks[k] || "",
+                    "timestamp": new Date().toISOString()
+                })),
+                "status": "complete"
+            };
+            
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(output, null, 2));
+            const downloadAnchor = document.createElement('a');
+            downloadAnchor.setAttribute("href", dataStr);
+            downloadAnchor.setAttribute("download", "feedback.json");
+            document.body.appendChild(downloadAnchor);
+            downloadAnchor.click();
+            downloadAnchor.remove();
+        }
+
+        // Init
+        switchEval(currentEvalId);
+    </script>
+</body>
+</html>

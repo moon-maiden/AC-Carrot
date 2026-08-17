@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Optimize Skill Trigger Description</title>
+    <style>
+        :root {
+            --bg-primary: #121214;
+            --bg-secondary: #1a1a1e;
+            --text-primary: #f3f4f6;
+            --text-secondary: #9ca3af;
+            --accent: #3b82f6;
+            --border: #2d2d34;
+            --success: #10b981;
+            --failure: #ef4444;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            margin: 0;
+            padding: 2rem;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        h1 {
+            font-size: 1.8rem;
+            margin-bottom: 0.5rem;
+        }
+        p.subtitle {
+            color: var(--text-secondary);
+            margin-bottom: 2rem;
+        }
+        .card {
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 0.5rem;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        .query-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 0;
+            border-bottom: 1px solid var(--border);
+        }
+        .query-row:last-child {
+            border-bottom: none;
+        }
+        .query-text {
+            flex-grow: 1;
+            margin-right: 1rem;
+        }
+        .badge {
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+        .badge.should-trigger {
+            background-color: rgba(16, 185, 129, 0.1);
+            color: var(--success);
+            border: 1px solid var(--success);
+        }
+        .badge.should-not-trigger {
+            background-color: rgba(239, 68, 68, 0.1);
+            color: var(--failure);
+            border: 1px solid var(--failure);
+        }
+        button.action-btn {
+            background-color: var(--accent);
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            font-size: 1rem;
+            border-radius: 0.375rem;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            margin-top: 1.5rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Optimize Trigger Description</h1>
+        <p class="subtitle">Review the should-trigger vs should-not-trigger evaluation queries below.</p>
+        
+        <div class="card">
+            <h2>Current Skill Metadata</h2>
+            <p><strong>Name:</strong> qa-debug-expert</p>
+            <p><strong>Current Description:</strong> Investigates codebases to locate the source of bugs, failing tests, crashes, or unexpected behaviors. Use this skill whenever the user asks to debug, troubleshoot, find an error source, analyze logs, or do QA checks. This skill instructs the agent to isolate the problem and write a detailed hand-off report without modifying any files.</p>
+        </div>
+
+        <div class="card">
+            <h2>Evaluation Queries (20 cases)</h2>
+            <div id="queries-list">
+                
+                <div class="query-row">
+                    <div class="query-text">"The warning tracker context menu is throwing a TypeError when clicking on messages with no content. Can you investigate why?"</div>
+                    <span class="badge should-trigger">
+                        Should Trigger
+                    </span>
+                </div>
+                
+                <div class="query-row">
+                    <div class="query-text">"FastAPI is returning a 500 Internal Server Error on /api/guilds/123/stats. The log shows a KeyError: 'member_count'. Where is this happening?"</div>
+                    <span class="badge should-trigger">
+                        Should Trigger
+                    </span>
+                </div>
+                
+                <div class="query-row">
+                    <div class="query-text">"Our reminders system is not pinging users in the right channel. Look through the database and reminders logic to find where the bug is, but don't change anything yet."</div>
+                    <span class="badge should-trigger">
+                        Should Trigger
+                    </span>
+                </div>
+                
+                <div class="query-row">
+                    <div class="query-text">"I ran the sync_warnings command and got a database locked error. Can you troubleshoot this database issue?"</div>
+                    <span class="badge should-trigger">
+                        Should Trigger
+                    </span>
+                </div>
+                
+                <div class="query-row">
+                    <div class="query-text">"The paid request submission form modal crashes when a user inputs a budget exceeding 5 figures. Find out why it's breaking."</div>
+                    <span class="badge should-trigger">
+                        Should Trigger
+                    </span>
+                </div>
+                
+                <div class="query-row">
+                    <div class="query-text">"Why does the chatbot initiating button fail to register? Here is the trace: AttributeError: 'NoneType' object has no attribute 'guild'. Pinpoint the line."</div>
+                    <span class="badge should-trigger">
+                        Should Trigger
+                    </span>
+                </div>
+                
+                <div class="query-row">
+                    <div class="query-text">"We have a bug where the verbal reasons are not loading for guild ID 0. Check database.py and report the failure point."</div>
+                    <span class="badge should-trigger">
+                        Should Trigger
+                    </span>
+                </div>
+                
+                <div class="query-row">
+                    <div class="query-text">"A user complained that they didn't receive a DM reminder for their pending commission. Trace the commission notifier flow to locate the bug."</div>
+                    <span class="badge should-trigger">
+                        Should Trigger
+                    </span>
+                </div>
+                
+                <div class="query-row">
+                    <div class="query-text">"Can you run a check on the vacation registration endpoint? It seems to allow start dates in the past. Find the logic flaw."</div>
+                    <span class="badge should-trigger">
+                        Should Trigger
+                    </span>
+                </div>
+                
+                <div class="query-row">
+                    <div class="query-text">"Help me debug this FastAPI traceback: RecursionError in api.py. Find the function causing it."</div>
+                    <span class="badge should-trigger">
+                        Should Trigger
+                    </span>
+                </div>
+                
+                <div class="query-row">
+                    <div class="query-text">"Add validation to the get_warnings endpoint in api.py to restrict the page and limit query parameters to positive integers."</div>
+                    <span class="badge should-not-trigger">
+                        Should Not Trigger
+                    </span>
+                </div>
+                
+                <div class="query-row">
+                    <div class="query-text">"Fix the backup secret token check in api.py so it logs a warning and returns 403 when the token is missing."</div>
+                    <span class="badge should-not-trigger">
+                        Should Not Trigger
+                    </span>
+                </div>
+                
+                <div class="query-row">
+                    <div class="query-text">"Create a unit test for the get_warnings pagination logic in api.py."</div>
+                    <span class="badge should-not-trigger">
+                        Should Not Trigger
+                    </span>
+                </div>
+                
+                <div class="query-row">
+                    <div class="query-text">"Implement a new feature in the Discord bot to automatically mute users who get more than 3 warnings in a week."</div>
+                    <span class="badge should-not-trigger">
+                        Should Not Trigger
+                    </span>
+                </div>
+                
+                <div class="query-row">
+                    <div class="query-text">"Optimize the database query in database.py for get_warnings_paginated to run faster by adding an index."</div>
+                    <span class="badge should-not-trigger">
+                        Should Not Trigger
+                    </span>
+                </div>
+                
+                <div class="query-row">
+                    <div class="query-text">"Refactor the get_cached_user function in api.py to use Redis instead of an in-memory dictionary."</div>
+                    <span class="badge should-not-trigger">
+                        Should Not Trigger
+                    </span>
+                </div>
+                
+                <div class="query-row">
+                    <div class="query-text">"Write a script to seed the database with 100 mock warnings for testing."</div>
+                    <span class="badge should-not-trigger">
+                        Should Not Trigger
+                    </span>
+                </div>
+                
+                <div class="query-row">
+                    <div class="query-text">"Update terms_of_service.md to include our new warning and mute policies."</div>
+                    <span class="badge should-not-trigger">
+                        Should Not Trigger
+                    </span>
+                </div>
+                
+                <div class="query-row">
+                    <div class="query-text">"Add a new button to the paid requests modal allowing users to cancel their submission."</div>
+                    <span class="badge should-not-trigger">
+                        Should Not Trigger
+                    </span>
+                </div>
+                
+                <div class="query-row">
+                    <div class="query-text">"Dockerize our FastAPI dashboard and set up a dev compose file."</div>
+                    <span class="badge should-not-trigger">
+                        Should Not Trigger
+                    </span>
+                </div>
+                
+            </div>
+        </div>
+        
+        <button class="action-btn" onclick="window.close()">Confirm & Close</button>
+    </div>
+</body>
+</html>

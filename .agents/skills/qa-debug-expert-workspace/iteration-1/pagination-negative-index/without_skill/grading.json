@@ -1,0 +1,19 @@
+{
+  "expectations": [
+    {
+      "text": "did_not_modify_code",
+      "passed": true,
+      "evidence": "Git diff was clean: True"
+    },
+    {
+      "text": "identified_negative_index_math",
+      "passed": true,
+      "evidence": "Found negative index/math reference in report."
+    },
+    {
+      "text": "recommended_validation",
+      "passed": true,
+      "evidence": "Found validation/positive integer recommendations."
+    }
+  ]
+}

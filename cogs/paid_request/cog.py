@@ -404,8 +404,8 @@ class PaidRequest(commands.Cog):
                     )
                     log_embed.add_field(name="Request From", value=f"Unknown [{req['user_id']}]", inline=False)
                     log_embed.add_field(name="Actioned By", value=f"{interaction.user.name} [{interaction.user.id}]", inline=False)
-                    now_str = datetime.now().strftime('%d %B %Y %H:%M')
-                    log_embed.add_field(name="Timestamp", value=f"`{now_str}`", inline=False)
+                    discord_ts = f"<t:{int(datetime.now().timestamp())}:f>"
+                    log_embed.add_field(name="Timestamp", value=discord_ts, inline=False)
                     log_embed.add_field(name="ID", value=str(req_id), inline=False)
                     await log_channel.send(embed=log_embed)
                 try:
@@ -507,8 +507,8 @@ class PaidRequest(commands.Cog):
                 )
                 log_embed.add_field(name="Request From", value=f"Unknown [{req['user_id']}]", inline=False)
                 log_embed.add_field(name="Actioned By", value=f"{interaction.user.name} [{interaction.user.id}]", inline=False)
-                now_str = datetime.now().strftime('%d %B %Y %H:%M')
-                log_embed.add_field(name="Timestamp", value=f"`{now_str}`", inline=False)
+                discord_ts = f"<t:{int(datetime.now().timestamp())}:f>"
+                log_embed.add_field(name="Timestamp", value=discord_ts, inline=False)
                 log_embed.add_field(name="ID", value=str(req_id), inline=False)
                 await log_channel.send(embed=log_embed)
             try:
@@ -576,8 +576,8 @@ class PaidRequest(commands.Cog):
             log_embed.add_field(name="Request From", value=submitter_str, inline=False)
             log_embed.add_field(name="Approved By", value=f"{interaction.user.name} [{interaction.user.id}]", inline=False)
             
-            now_str = datetime.now().strftime('%d %B %Y %H:%M')
-            log_embed.add_field(name="Timestamp", value=f"`{now_str}`", inline=False)
+            discord_ts = f"<t:{int(datetime.now().timestamp())}:f>"
+            log_embed.add_field(name="Timestamp", value=discord_ts, inline=False)
             log_embed.add_field(name="ID", value=str(req_id), inline=False)
             
             await log_channel.send(embed=log_embed)
@@ -729,8 +729,8 @@ class PaidRequest(commands.Cog):
             log_embed.add_field(name="Request From", value=submitter_str, inline=False)
             log_embed.add_field(name="Cancelled By", value=submitter_str, inline=False)
             
-            now_str = datetime.now().strftime('%d %B %Y %H:%M')
-            log_embed.add_field(name="Timestamp", value=f"`{now_str}`", inline=False)
+            discord_ts = f"<t:{int(datetime.now().timestamp())}:f>"
+            log_embed.add_field(name="Timestamp", value=discord_ts, inline=False)
             log_embed.add_field(name="ID", value=str(req_id), inline=False)
             
             await log_channel.send(embed=log_embed)

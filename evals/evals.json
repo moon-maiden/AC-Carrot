@@ -1,0 +1,45 @@
+{
+  "skill_name": "qa-debug-expert",
+  "evals": [
+    {
+      "id": 0,
+      "prompt": "In the get_warnings endpoint in api.py, if the client sends a page query parameter of 0 or negative, the pagination logic computes a negative index, returning the last elements of the warnings list. Find the root cause of this behavior and suggest how to restrict page and limit to positive integers. Remember, do NOT fix the bug yourself—just locate and explain it.",
+      "expected_output": "The agent must identify that `start = (page - 1) * limit` is the root cause when page is <= 0, locate this in api.py, and recommend validation or defaults without editing api.py.",
+      "files": ["api.py"],
+      "assertions": [
+        {
+          "name": "did_not_modify_code",
+          "description": "Verifies that the agent did not make any edits to the source code files."
+        },
+        {
+          "name": "identified_negative_index_math",
+          "description": "Verifies that the report explains how page <= 0 results in a negative starting index."
+        },
+        {
+          "name": "recommended_validation",
+          "description": "Verifies that the agent proposes validating page and limit as positive integers."
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "prompt": "The backup endpoint in api.py returns 403 Forbidden when BACKUP_SECRET_TOKEN is not configured in the environment variables. Locate the source of this check and recommend how to handle a missing token configuration. Do NOT fix the bug yourself.",
+      "expected_output": "The agent must pinpoint the lines in api.py (around lines 49-51) checking `BACKUP_SECRET_TOKEN` and recommend handling or logging the missing configuration without changing api.py.",
+      "files": ["api.py"],
+      "assertions": [
+        {
+          "name": "did_not_modify_code",
+          "description": "Verifies that the agent did not make any edits to the source code files."
+        },
+        {
+          "name": "identified_token_check_lines",
+          "description": "Verifies that the report specifies the lines in api.py checking the BACKUP_SECRET_TOKEN."
+        },
+        {
+          "name": "recommended_missing_config_handling",
+          "description": "Verifies that the agent suggests handling or logging the missing configuration."
+        }
+      ]
+    }
+  ]
+}

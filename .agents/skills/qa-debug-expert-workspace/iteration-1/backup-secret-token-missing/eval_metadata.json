@@ -1,0 +1,19 @@
+{
+  "eval_id": 1,
+  "eval_name": "backup-secret-token-missing",
+  "prompt": "The backup endpoint in api.py returns 403 Forbidden when BACKUP_SECRET_TOKEN is not configured in the environment variables. Locate the source of this check and recommend how to handle a missing token configuration. Do NOT fix the bug yourself.",
+  "assertions": [
+    {
+      "name": "did_not_modify_code",
+      "description": "Verifies that the agent did not make any edits to the source code files."
+    },
+    {
+      "name": "identified_token_check_lines",
+      "description": "Verifies that the report specifies the lines in api.py checking the BACKUP_SECRET_TOKEN."
+    },
+    {
+      "name": "recommended_missing_config_handling",
+      "description": "Verifies that the agent suggests handling or logging the missing configuration."
+    }
+  ]
+}
