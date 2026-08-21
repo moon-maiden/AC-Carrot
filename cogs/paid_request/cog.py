@@ -3,6 +3,7 @@ from discord import app_commands
 from discord.ext import tasks, commands
 import os
 import database
+import asyncio
 from datetime import datetime, timezone
 from .helpers import parse_duration_to_days
 from .ui import PaidRequestModal, RejectReasonModal
@@ -333,6 +334,9 @@ class PaidRequest(commands.Cog):
             except discord.HTTPException as e:
                 print(f"[Sync Paid Requests Error] Failed request #{req_id} (msg: {msg_id}): {e}")
                 error_details.append(f"Request #{req_id} (Message {msg_id}): {str(e)}")
+
+            # Sleep to prevent hitting Discord API rate limits
+            await asyncio.sleep(0.5)
 
         error_section = ""
         if error_details:
