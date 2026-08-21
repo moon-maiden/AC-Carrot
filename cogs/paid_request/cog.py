@@ -281,7 +281,7 @@ class PaidRequest(commands.Cog):
 
         deleted_count = 0
         updated_count = 0
-        error_count = 0
+        error_details = []
 
         async with database.aiosqlite.connect(database.DB_NAME) as db:
             db.row_factory = database.aiosqlite.Row
@@ -330,14 +330,21 @@ class PaidRequest(commands.Cog):
             except discord.NotFound:
                 # Message already deleted/not found, which is fine
                 pass
-            except discord.HTTPException:
-                error_count += 1
+            except discord.HTTPException as e:
+                print(f"[Sync Paid Requests Error] Failed request #{req_id} (msg: {msg_id}): {e}")
+                error_details.append(f"Request #{req_id} (Message {msg_id}): {str(e)}")
+
+        error_section = ""
+        if error_details:
+            error_section = "\n\n**Errors Encountered:**\n" + "\n".join(error_details[:10])
+            if len(error_details) > 10:
+                error_section += f"\n*and {len(error_details) - 10} more errors...*"
 
         await interaction.followup.send(
             f"✅ **Sync complete!**\n"
             f"- Posts Deleted (Closed): {deleted_count}\n"
             f"- Posts Updated (Fulfilled): {updated_count}\n"
-            f"- Errors encountered: {error_count}",
+            f"- Errors: {len(error_details)}{error_section}",
             ephemeral=True
         )
 
