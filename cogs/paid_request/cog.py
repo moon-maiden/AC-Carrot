@@ -253,6 +253,94 @@ class PaidRequest(commands.Cog):
             await database.purge_all_warnings()
             await interaction.followup.send("✅ All verbals have been successfully purged from the database.", ephemeral=True)
 
+    @app_commands.command(name="sync_paid_requests", description="Syncs all closed/fulfilled paid request posts in the approved channel")
+    async def sync_paid_requests_slash(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            await interaction.response.send_message("❌ This command can only be used in a server.", ephemeral=True)
+            return
+
+        # Ensure only administrators can run this command
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message("❌ You must be an administrator to run this command.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        config = await database.get_guild_config(interaction.guild.id)
+        approved_channel_id = config.get("approved_channel_id") or 0
+        approved_channel = self.bot.get_channel(approved_channel_id)
+        if not approved_channel and approved_channel_id:
+            try:
+                approved_channel = await self.bot.fetch_channel(approved_channel_id)
+            except discord.HTTPException:
+                pass
+
+        if not approved_channel:
+            await interaction.followup.send("❌ Approved paid requests channel is not configured or inaccessible.", ephemeral=True)
+            return
+
+        deleted_count = 0
+        updated_count = 0
+        error_count = 0
+
+        async with database.aiosqlite.connect(database.DB_NAME) as db:
+            db.row_factory = database.aiosqlite.Row
+            cursor = await db.execute(
+                "SELECT request_id, status, approved_msg_id FROM paid_requests WHERE guild_id = ? AND status IN ('closed', 'fulfilled')",
+                (interaction.guild.id,)
+            )
+            rows = await cursor.fetchall()
+
+        for row in rows:
+            req_id = row['request_id']
+            status = row['status']
+            msg_id = row['approved_msg_id']
+
+            if not msg_id:
+                continue
+
+            try:
+                msg = await approved_channel.fetch_message(msg_id)
+                if status == 'closed':
+                    await msg.delete()
+                    deleted_count += 1
+                elif status == 'fulfilled':
+                    if msg.embeds:
+                        embed = msg.embeds[0]
+                        modified = False
+                        
+                        if embed.title and not embed.title.startswith("~~"):
+                            embed.title = f"~~{embed.title}~~ [FULFILLED]"
+                            modified = True
+                        if embed.description and not embed.description.startswith("~~"):
+                            embed.description = f"~~{embed.description}~~"
+                            modified = True
+                        if embed.color != discord.Color.dark_grey():
+                            embed.color = discord.Color.dark_grey()
+                            modified = True
+                            
+                        for i, field in enumerate(embed.fields):
+                            if not field.value.startswith("~~"):
+                                embed.set_field_at(i, name=field.name, value=f"~~{field.value}~~", inline=field.inline)
+                                modified = True
+                                
+                        if modified:
+                            await msg.edit(embed=embed)
+                            updated_count += 1
+            except discord.NotFound:
+                # Message already deleted/not found, which is fine
+                pass
+            except discord.HTTPException:
+                error_count += 1
+
+        await interaction.followup.send(
+            f"✅ **Sync complete!**\n"
+            f"- Posts Deleted (Closed): {deleted_count}\n"
+            f"- Posts Updated (Fulfilled): {updated_count}\n"
+            f"- Errors encountered: {error_count}",
+            ephemeral=True
+        )
+
     @commands.command(name="purge")
     async def purge_prefix(self, ctx, *, target: str = None):
         if ctx.author.id != 255174440005009408:
