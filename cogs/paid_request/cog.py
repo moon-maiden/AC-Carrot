@@ -629,6 +629,8 @@ class PaidRequest(commands.Cog):
                 else:  # fulfilled
                     embed = msg.embeds[0]
                     embed.title = f"~~{embed.title}~~ [{action.upper()}]"
+                    if embed.description and not embed.description.startswith("~~"):
+                        embed.description = f"~~{embed.description}~~"
                     embed.color = discord.Color.dark_grey()
                     
                     for i, field in enumerate(embed.fields):
