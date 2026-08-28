@@ -14,7 +14,8 @@ from .ui import (
     VerbalPreviewView,
     WarningsPaginationView,
     StaffWarningsPaginationView,
-    HelpPaginationView
+    HelpPaginationView,
+    EditVerbalReasonSelect
 )
 
 class WarningTracker(commands.Cog):
@@ -760,10 +761,8 @@ class WarningTracker(commands.Cog):
         await ctx.send(f"Successfully deleted verbal notice with ID #{warning_id} and notified the user.")
 
     @commands.command(name="editverbal")
-    async def editverbal(self, ctx, warning_id: int, *, new_reason: str):
+    async def editverbal(self, ctx, warning_id: int):
         config = await database.get_guild_config(ctx.guild.id if ctx.guild else 0)
-        notice_channel_id = config.get("staff_notice_channel_id") or 0
-        log_channel_id = config.get("staff_log_channel_id") or 0
         
         # Restrict command to administrators (bypassed for developer)
         is_admin = ctx.author.guild_permissions.administrator if ctx.guild else False
@@ -775,6 +774,27 @@ class WarningTracker(commands.Cog):
         warn = await database.get_warning_by_id(warning_id)
         if not warn:
             await ctx.send(f"Verbal ID #{warning_id} was not found in the database.")
+            return
+
+        # Fetch pre-configured reasons
+        reasons_db = await database.get_all_verbal_reasons(ctx.guild.id if ctx.guild else 0)
+        if not reasons_db:
+            await ctx.send("No verbal reasons configured in the database.")
+            return
+
+        # Send dropdown select menu
+        view = RemovalDropdownView(EditVerbalReasonSelect(warning_id, self, reasons_db, ctx.guild.id if ctx.guild else 0), timeout=180)
+        msg = await ctx.send("Select a new reason for this verbal warning:", view=view)
+        view.message = msg
+
+    async def execute_verbal_edit(self, interaction: discord.Interaction, warning_id: int, new_reason: str):
+        config = await database.get_guild_config(interaction.guild_id or 0)
+        notice_channel_id = config.get("staff_notice_channel_id") or 0
+        log_channel_id = config.get("staff_log_channel_id") or 0
+
+        warn = await database.get_warning_by_id(warning_id)
+        if not warn:
+            await interaction.followup.send(f"Verbal ID #{warning_id} was not found in the database.", ephemeral=True)
             return
 
         old_reason = warn['reason']
@@ -830,7 +850,7 @@ class WarningTracker(commands.Cog):
         if log_channel:
             log_embed = discord.Embed(
                 title="Log: Verbal Warning Edited",
-                description=f"Admin {ctx.author.mention} has edited the reason for Verbal ID #{warning_id}.",
+                description=f"Admin {interaction.user.mention} has edited the reason for Verbal ID #{warning_id}.",
                 color=discord.Color.blue()
             )
             log_embed.add_field(name="User", value=f"<@{warn['user_id']}> ({warn['user_id']})", inline=True)
@@ -842,7 +862,12 @@ class WarningTracker(commands.Cog):
             except Exception as e:
                 print(f"Failed to send log embed: {e}")
 
-        await ctx.send(f"Successfully updated verbal notice with ID #{warning_id} and notified the user.")
+        try:
+            await interaction.message.delete()
+        except Exception:
+            pass
+
+        await interaction.followup.send(f"Successfully updated verbal notice with ID #{warning_id} and notified the user.", ephemeral=True)
 
     @commands.command(name="verbalby")
     async def verbalby(self, ctx, staff: discord.User = None):

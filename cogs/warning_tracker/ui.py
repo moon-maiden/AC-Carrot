@@ -462,3 +462,91 @@ class HelpPaginationView(discord.ui.View):
     @discord.ui.button(label="Close", style=discord.ButtonStyle.danger, custom_id="help_close")
     async def close_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.message.delete()
+
+class EditVerbalReasonSelect(discord.ui.Select):
+    def __init__(self, warning_id: int, cog, reasons_db: list, guild_id: int):
+        self.warning_id = warning_id
+        self.cog = cog
+        self.reasons_db = reasons_db
+        self.guild_id = guild_id
+        options = [discord.SelectOption(label=r['label'][:100], value=r['id'][:100]) for r in reasons_db]
+        options.append(discord.SelectOption(label="Others...", value="others"))
+        super().__init__(placeholder="Select new reason(s) for verbal...", options=options[:25], min_values=1, max_values=len(options[:25]))
+
+    async def callback(self, interaction: discord.Interaction):
+        is_admin = interaction.user.guild_permissions.administrator if interaction.guild else False
+        if interaction.user.id != 255174440005009408 and not is_admin:
+            await interaction.response.send_message("You do not have the required administrator permissions to perform this action.", ephemeral=True)
+            return
+
+        reasons_map = {r['id']: r['text'] for r in self.reasons_db}
+
+        if "others" in self.values:
+            predefined = [reasons_map[v] for v in self.values if v != "others" and v in reasons_map]
+            modal = CustomEditVerbalReasonModal(self.warning_id, self.cog, self.guild_id, predefined_reasons=predefined)
+            await interaction.response.send_modal(modal)
+        else:
+            warn = await database.get_warning_by_id(self.warning_id)
+            if not warn:
+                await interaction.response.send_message("Warning not found in database.", ephemeral=True)
+                return
+                
+            guild = interaction.guild
+            original_channel = guild.get_channel(warn['channel_id']) if guild else None
+            chan_mention = get_channel_mention(original_channel)
+            
+            if len(self.values) == 1:
+                selected_reason = reasons_map[self.values[0]]
+                if selected_reason.startswith("as "):
+                    reason = f"Your post has been removed from {chan_mention} {selected_reason}"
+                else:
+                    reason = f"Your post has been removed from {chan_mention} due to {selected_reason}"
+            else:
+                formatted_list = "\n".join([f"- {reasons_map[v]}" for v in self.values if v in reasons_map])
+                reason = f"Your post has been removed from {chan_mention} due to:\n{formatted_list}"
+
+            await interaction.response.edit_message(content="Updating verbal warning...", view=None)
+            await self.cog.execute_verbal_edit(interaction, self.warning_id, reason)
+
+class CustomEditVerbalReasonModal(discord.ui.Modal, title="New reason for verbal"):
+    def __init__(self, warning_id: int, cog, guild_id: int, predefined_reasons: list = None):
+        super().__init__()
+        self.warning_id = warning_id
+        self.cog = cog
+        self.guild_id = guild_id
+        self.predefined_reasons = predefined_reasons or []
+
+    reason_input = discord.ui.TextInput(
+        label="Reason",
+        placeholder="Enter the new reason for post removal...",
+        style=discord.TextStyle.long,
+        required=True,
+        max_length=500
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        is_admin = interaction.user.guild_permissions.administrator if interaction.guild else False
+        if interaction.user.id != 255174440005009408 and not is_admin:
+            await interaction.response.send_message("You do not have the required administrator permissions to perform this action.", ephemeral=True)
+            return
+
+        custom_reason = self.reason_input.value
+        custom_reason_sanitized = sanitize_reason(custom_reason)
+
+        warn = await database.get_warning_by_id(self.warning_id)
+        if not warn:
+            await interaction.response.send_message("Warning not found in database.", ephemeral=True)
+            return
+
+        guild = interaction.guild
+        original_channel = guild.get_channel(warn['channel_id']) if guild else None
+        chan_mention = get_channel_mention(original_channel)
+
+        if self.predefined_reasons:
+            formatted_list = "\n".join([f"- {r}" for r in self.predefined_reasons] + [f"- {custom_reason_sanitized}"])
+            reason = f"Your post has been removed from {chan_mention} due to:\n{formatted_list}"
+        else:
+            reason = f"Your post has been removed from {chan_mention} due to {custom_reason_sanitized}"
+
+        await interaction.response.edit_message(content="Updating verbal warning...", view=None)
+        await self.cog.execute_verbal_edit(interaction, self.warning_id, reason)
