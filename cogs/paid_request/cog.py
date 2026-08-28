@@ -91,8 +91,10 @@ class PaidRequest(commands.Cog):
             view = discord.ui.View(timeout=None)
             close_btn = discord.ui.Button(label="Close", style=discord.ButtonStyle.secondary, custom_id=f"dmclose_{req_id}")
             fulfill_btn = discord.ui.Button(label="Fulfilled", style=discord.ButtonStyle.success, custom_id=f"dmfulfill_{req_id}")
+            bump_btn = discord.ui.Button(label="Bump Request", style=discord.ButtonStyle.primary, custom_id=f"dmbump_{req_id}")
             view.add_item(close_btn)
             view.add_item(fulfill_btn)
+            view.add_item(bump_btn)
             
             ref = None
             if req['dm_msg_id']:
@@ -521,6 +523,10 @@ class PaidRequest(commands.Cog):
             action = "closed" if custom_id.startswith("dmclose_") else "fulfilled"
             await self.handle_dm_action(interaction, req_id, action)
             
+        elif custom_id.startswith("dmbump_"):
+            req_id = int(custom_id.split("_")[1])
+            await self.handle_bump_action(interaction, req_id)
+            
         elif custom_id.startswith("dmedit_"):
             req_id = int(custom_id.split("_")[1])
             req = await database.get_paid_request(req_id)
@@ -746,8 +752,10 @@ class PaidRequest(commands.Cog):
         view = discord.ui.View(timeout=None)
         close_btn = discord.ui.Button(label="Close", style=discord.ButtonStyle.secondary, disabled=True)
         fulfill_btn = discord.ui.Button(label="Fulfilled", style=discord.ButtonStyle.success, disabled=True)
+        bump_btn = discord.ui.Button(label="Bump Request", style=discord.ButtonStyle.primary, disabled=True)
         view.add_item(close_btn)
         view.add_item(fulfill_btn)
+        view.add_item(bump_btn)
         
         await interaction.message.edit(view=view)
         await interaction.response.send_message(f"Marked as {action}.", ephemeral=True)
@@ -765,6 +773,107 @@ class PaidRequest(commands.Cog):
                 await other_msg.edit(view=view)
             except Exception:
                 pass
+
+    async def handle_bump_action(self, interaction: discord.Interaction, req_id: int):
+        await interaction.response.defer(ephemeral=True)
+        req = await database.get_paid_request(req_id)
+        if not req:
+            await interaction.followup.send("Request not found.", ephemeral=True)
+            return
+
+        if req['status'] != 'approved':
+            await interaction.followup.send("Only approved active requests can be bumped.", ephemeral=True)
+            return
+
+        guild_id = req['guild_id'] or interaction.guild_id or 0
+        config = await database.get_guild_config(guild_id)
+        approved_channel_id = config.get("approved_channel_id") or 0
+        approved_channel = self.bot.get_channel(approved_channel_id)
+        if not approved_channel and approved_channel_id:
+            try:
+                approved_channel = await self.bot.fetch_channel(approved_channel_id)
+            except discord.HTTPException:
+                pass
+
+        if not approved_channel:
+            await interaction.followup.send("Approved paid requests channel is not configured or inaccessible.", ephemeral=True)
+            return
+
+        # 1. Delete the old message in the channel
+        old_msg_id = req['approved_msg_id']
+        if old_msg_id:
+            try:
+                old_msg = await approved_channel.fetch_message(old_msg_id)
+                await old_msg.delete()
+            except Exception:
+                pass
+
+        # 2. Re-create the embed and title
+        guild = self.bot.get_guild(guild_id)
+        member = guild.get_member(req['user_id']) if guild else None
+        if guild and not member:
+            try:
+                member = await guild.fetch_member(req['user_id'])
+            except discord.HTTPException:
+                member = None
+
+        joined_str = "Unknown"
+        display_name = f"User ID {req['user_id']}"
+        avatar_url = None
+        
+        if member:
+            display_name = member.display_name
+            if member.display_avatar:
+                avatar_url = member.display_avatar.url
+            if member.joined_at:
+                joined_str = f"<t:{int(member.joined_at.timestamp())}:f> ( <t:{int(member.joined_at.timestamp())}:R> )"
+
+        title = f"Request By {display_name}"
+        if not title.endswith(" (Bumped)"):
+            title = f"{title} (Bumped)"
+
+        embed = discord.Embed(
+            title=title,
+            description=req['content'],
+            color=discord.Color.green()
+        )
+        if avatar_url:
+            embed.set_thumbnail(url=avatar_url)
+            
+        embed.add_field(name="Budget", value=req['budget'], inline=False)
+        embed.add_field(name="Type", value=req['sfw_nsfw'], inline=False)
+        embed.add_field(name="Payment", value=req['payment_method'], inline=False)
+        embed.add_field(name="Use", value=req['use_case'], inline=False)
+        embed.add_field(name="Member", value=f"<@{req['user_id']}> | {member.name if member else 'Unknown'}\n[{req['user_id']}]", inline=False)
+        embed.add_field(name="Joined", value=joined_str, inline=False)
+        embed.add_field(name="ID", value=str(req_id), inline=False)
+
+        # 3. Send new message
+        try:
+            new_msg = await approved_channel.send(content=f"__**DIRECT MESSAGE the user here:**__ <@{req['user_id']}>", embed=embed)
+            new_msg_id = new_msg.id
+        except discord.HTTPException as e:
+            await interaction.followup.send(f"Failed to resend request to public channel: {str(e)}", ephemeral=True)
+            return
+
+        # 4. Update database
+        async with database.aiosqlite.connect(database.DB_NAME) as db:
+            await db.execute("UPDATE paid_requests SET approved_msg_id = ? WHERE request_id = ?", (new_msg_id, req_id))
+            await db.commit()
+
+        await database.update_paid_request_reminded_time(req_id)
+
+        # 5. Disable bump button in DM message
+        view = discord.ui.View(timeout=None)
+        close_btn = discord.ui.Button(label="Close", style=discord.ButtonStyle.secondary, custom_id=f"dmclose_{req_id}")
+        fulfill_btn = discord.ui.Button(label="Fulfilled", style=discord.ButtonStyle.success, custom_id=f"dmfulfill_{req_id}")
+        bump_btn = discord.ui.Button(label="Bumped", style=discord.ButtonStyle.primary, disabled=True)
+        view.add_item(close_btn)
+        view.add_item(fulfill_btn)
+        view.add_item(bump_btn)
+
+        await interaction.message.edit(view=view)
+        await interaction.followup.send("✅ Your paid request has been successfully bumped to the top of the channel!", ephemeral=True)
 
     async def handle_cancel(self, interaction: discord.Interaction, req_id: int):
         await interaction.response.defer(ephemeral=True)
