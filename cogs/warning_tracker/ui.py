@@ -395,6 +395,7 @@ class HelpPaginationView(discord.ui.View):
                 "fields": [
                     ("!verbals <userid>", "Retrieve a list of verbal warnings for the specified user ID.", False),
                     ("!delverbal <id>", "Deletes a verbal warning using its unique Verbal ID.", False),
+                    ("!editverbal <id> <new_reason>", "Edits the reason of a verbal warning using its unique Verbal ID.", False),
                     ("!verbalby <userid>", "List all warnings issued by the specified staff member ID.", False),
                     ("!sync_warnings", "Syncs the last 3 months of warnings in #staff-notice into the database.", False),
                     ("!givevac @member [reason]", "Puts a staff member on vacation (removes staff roles).", False),

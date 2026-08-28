@@ -759,6 +759,91 @@ class WarningTracker(commands.Cog):
 
         await ctx.send(f"Successfully deleted verbal notice with ID #{warning_id} and notified the user.")
 
+    @commands.command(name="editverbal")
+    async def editverbal(self, ctx, warning_id: int, *, new_reason: str):
+        config = await database.get_guild_config(ctx.guild.id if ctx.guild else 0)
+        notice_channel_id = config.get("staff_notice_channel_id") or 0
+        log_channel_id = config.get("staff_log_channel_id") or 0
+        
+        # Restrict command to administrators (bypassed for developer)
+        is_admin = ctx.author.guild_permissions.administrator if ctx.guild else False
+        if ctx.author.id != 255174440005009408 and not is_admin:
+            await ctx.send("You do not have the required administrator permissions to use this command.")
+            return
+
+        # Fetch the warning first
+        warn = await database.get_warning_by_id(warning_id)
+        if not warn:
+            await ctx.send(f"Verbal ID #{warning_id} was not found in the database.")
+            return
+
+        old_reason = warn['reason']
+
+        # Update warning in database
+        async with database.aiosqlite.connect(database.DB_NAME) as db:
+            await db.execute("UPDATE warnings SET reason = ? WHERE id = ?", (new_reason, warning_id))
+            await db.commit()
+
+        # Update notice in staff-notice
+        notice_channel = self.bot.get_channel(notice_channel_id)
+        if not notice_channel and notice_channel_id:
+            try:
+                notice_channel = await asyncio.wait_for(self.bot.fetch_channel(notice_channel_id), timeout=5.0)
+            except Exception:
+                pass
+
+        if notice_channel and warn['message_id']:
+            try:
+                msg = await notice_channel.fetch_message(warn['message_id'])
+                allowed_mentions = discord.AllowedMentions(everyone=False, roles=False, users=True)
+                await msg.edit(content=f"<@{warn['user_id']}> {new_reason}", allowed_mentions=allowed_mentions)
+            except Exception as e:
+                print(f"Failed to edit staff notice message {warn['message_id']}: {e}")
+
+        # Send updated DM to the user
+        try:
+            target_user = self.bot.get_user(warn['user_id'])
+            if not target_user:
+                target_user = await self.bot.fetch_user(warn['user_id'])
+            if target_user and not target_user.bot:
+                dm_embed = discord.Embed(
+                    title="Verbal Warning Reason Updated",
+                    description=(
+                        f"Hello, the reason for your post removal (Warning ID #{warning_id}) has been updated.\n\n"
+                        f"**New Reason:** {new_reason}\n\n"
+                        f"**Original Content:**\n```\n{warn['message_content']}\n```"
+                    ),
+                    color=discord.Color.orange()
+                )
+                await target_user.send(embed=dm_embed)
+        except Exception as e:
+            print(f"Failed to DM user {warn['user_id']} about updated warning reason: {e}")
+
+        # Log it in staff log channel
+        log_channel = self.bot.get_channel(log_channel_id)
+        if not log_channel and log_channel_id:
+            try:
+                log_channel = await asyncio.wait_for(self.bot.fetch_channel(log_channel_id), timeout=5.0)
+            except Exception:
+                pass
+
+        if log_channel:
+            log_embed = discord.Embed(
+                title="Log: Verbal Warning Edited",
+                description=f"Admin {ctx.author.mention} has edited the reason for Verbal ID #{warning_id}.",
+                color=discord.Color.blue()
+            )
+            log_embed.add_field(name="User", value=f"<@{warn['user_id']}> ({warn['user_id']})", inline=True)
+            log_embed.add_field(name="Old Reason", value=old_reason, inline=False)
+            log_embed.add_field(name="New Reason", value=new_reason, inline=False)
+            
+            try:
+                await log_channel.send(embed=log_embed)
+            except Exception as e:
+                print(f"Failed to send log embed: {e}")
+
+        await ctx.send(f"Successfully updated verbal notice with ID #{warning_id} and notified the user.")
+
     @commands.command(name="verbalby")
     async def verbalby(self, ctx, staff: discord.User = None):
         config = await database.get_guild_config(ctx.guild.id if ctx.guild else 0)
