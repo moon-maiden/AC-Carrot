@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Settings, Save, AlertTriangle, Plus, X, Info, HelpCircle, Search, Check, Shield } from "lucide-react";
+import { useEffect, useState, useMemo, useRef } from "react";
+import { Settings, Save, AlertTriangle, Plus, X, Info, HelpCircle, Search, Check, Shield, Trash2, ChevronDown, ChevronUp } from "lucide-react";
 import { useGuild } from "../../context/GuildContext";
 import { apiFetch } from "../../lib/api";
 
@@ -16,6 +16,7 @@ type GuildConfig = {
   review_channel_id: string | null;
   approved_channel_id: string | null;
   approval_log_channel_id: string | null;
+  deletion_review_channel_id: string | null;
   active_limit: number;
   reminder_threshold: number;
   accepted_currencies: string;
@@ -27,12 +28,31 @@ type GuildConfig = {
   vacation_secondary_guild_id: string | null;
   vacation_strip_roles_1: string | null;
   vacation_strip_roles_2: string | null;
+  training_wheel_user_ids?: string | null;
+  training_wheel_channel_map?: string | null;
 };
 
 type VerbalReason = {
   id: string;
   label: string;
   text: string;
+};
+
+type GuildChannel = {
+  id: string;
+  name: string;
+  type: "text" | "forum";
+  category: string;
+  category_position: number;
+  position: number;
+};
+
+type TrainingWheelUser = {
+  user_id: string;
+  enabled: boolean;
+  name: string;
+  avatar: string | null;
+  exempt_channels?: string[];
 };
 
 type GuildInfo = {
@@ -43,12 +63,19 @@ type GuildInfo = {
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<"verbal" | "paid" | "vacation">("verbal");
-  const [verbalSubTab, setVerbalSubTab] = useState<"channels" | "reasons">("channels");
+  const [verbalSubTab, setVerbalSubTab] = useState<"channels" | "reasons" | "training">("channels");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [config, setConfig] = useState<GuildConfig | null>(null);
   const [reasons, setReasons] = useState<VerbalReason[]>([]);
   const [expandedReasons, setExpandedReasons] = useState<number[]>([]);
+  const [trainingWheels, setTrainingWheels] = useState<TrainingWheelUser[]>([]);
+  const [channels, setChannels] = useState<GuildChannel[]>([]);
+  const [expandedUserChannels, setExpandedUserChannels] = useState<string | null>(null);
+  const [channelSearch, setChannelSearch] = useState("");
+  const [newUserId, setNewUserId] = useState("");
+  const [addingUser, setAddingUser] = useState(false);
+  const [userAddError, setUserAddError] = useState<string | null>(null);
 
   // Vacation role and search states
   const [vacationRoles, setVacationRoles] = useState<{
@@ -95,13 +122,21 @@ export default function SettingsPage() {
     Promise.all([
       apiFetch(`${apiUrl}/api/guilds/${selectedGuildId}/config`).then(res => res.json()),
       apiFetch(`${apiUrl}/api/guilds/${selectedGuildId}/warning-reasons`).then(res => res.json()),
-      apiFetch(`${apiUrl}/api/guilds/${selectedGuildId}/vacation-roles`).then(res => res.json()).catch(() => null)
+      apiFetch(`${apiUrl}/api/guilds/${selectedGuildId}/vacation-roles`).then(res => res.json()).catch(() => null),
+      apiFetch(`${apiUrl}/api/guilds/${selectedGuildId}/training-wheels`).then(res => res.json()).catch(() => ({ users: [] })),
+      apiFetch(`${apiUrl}/api/guilds/${selectedGuildId}/channels`).then(res => res.json()).catch(() => ({ channels: [] }))
     ])
-      .then(([configData, reasonsData, vRolesData]) => {
+      .then(([configData, reasonsData, vRolesData, twData, channelsData]) => {
         setConfig(configData);
         setReasons(reasonsData);
         if (vRolesData) {
           setVacationRoles(vRolesData);
+        }
+        if (twData?.users) {
+          setTrainingWheels(twData.users);
+        }
+        if (channelsData?.channels) {
+          setChannels(channelsData.channels);
         }
         setLoading(false);
       })
@@ -110,6 +145,140 @@ export default function SettingsPage() {
         setLoading(false);
       });
   }, [selectedGuildId]);
+
+  const handleAddTrainingWheel = async () => {
+    if (!newUserId.trim()) return;
+    setAddingUser(true);
+    setUserAddError(null);
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    try {
+      const res = await apiFetch(`${apiUrl}/api/guilds/${selectedGuildId}/training-wheels`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: newUserId.trim(), enabled: true })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setTrainingWheels(prev => {
+          const exists = prev.some(u => u.user_id === data.user.user_id);
+          if (exists) {
+            return prev.map(u => u.user_id === data.user.user_id ? data.user : u);
+          }
+          return [...prev, data.user];
+        });
+        setNewUserId("");
+      } else {
+        const err = await res.json();
+        setUserAddError(err.detail || "Failed to add user");
+      }
+    } catch (e: any) {
+      setUserAddError(e.message || "Failed to add user");
+    } finally {
+      setAddingUser(false);
+    }
+  };
+
+  const handleDeleteTrainingWheel = async (userId: string) => {
+    setTrainingWheels(prev => prev.filter(u => u.user_id !== userId));
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    try {
+      await apiFetch(`${apiUrl}/api/guilds/${selectedGuildId}/training-wheels/${userId}`, {
+        method: "DELETE"
+      });
+    } catch (e) {
+      console.error("Failed to delete training wheel user:", e);
+    }
+  };
+
+  const saveTimersRef = useRef<{ [userId: string]: NodeJS.Timeout }>({});
+
+  const saveUserExemptions = (userId: string, newExemptions: string[]) => {
+    setTrainingWheels(prev => prev.map(u => {
+      if (u.user_id === userId) {
+        return { ...u, exempt_channels: newExemptions };
+      }
+      return u;
+    }));
+
+    if (saveTimersRef.current[userId]) {
+      clearTimeout(saveTimersRef.current[userId]);
+    }
+
+    saveTimersRef.current[userId] = setTimeout(async () => {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      try {
+        await apiFetch(`${apiUrl}/api/guilds/${selectedGuildId}/training-wheels/${userId}/channels`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ exempt_channels: newExemptions })
+        });
+      } catch (e) {
+        console.error("Error saving channel exemptions:", e);
+      }
+    }, 300);
+  };
+
+  const handleToggleChannel = (userId: string, channelId: string) => {
+    const user = trainingWheels.find(u => u.user_id === userId);
+    if (!user) return;
+    const currentExemptions = new Set(user.exempt_channels || []);
+    if (currentExemptions.has(channelId)) {
+      currentExemptions.delete(channelId);
+    } else {
+      currentExemptions.add(channelId);
+    }
+    saveUserExemptions(userId, Array.from(currentExemptions));
+  };
+
+  const handleSelectAllChannels = (userId: string) => {
+    saveUserExemptions(userId, []);
+  };
+
+  const handleDeselectAllChannels = (userId: string) => {
+    saveUserExemptions(userId, channels.map(c => c.id));
+  };
+
+  const handleToggleCategory = (userId: string, categoryChannels: GuildChannel[]) => {
+    const user = trainingWheels.find(u => u.user_id === userId);
+    if (!user) return;
+    const currentExemptions = new Set(user.exempt_channels || []);
+    const catChannelIds = categoryChannels.map(c => c.id);
+    const allSupervised = categoryChannels.every(c => !currentExemptions.has(c.id));
+
+    if (allSupervised) {
+      catChannelIds.forEach(id => currentExemptions.add(id));
+    } else {
+      catChannelIds.forEach(id => currentExemptions.delete(id));
+    }
+    saveUserExemptions(userId, Array.from(currentExemptions));
+  };
+
+  const filteredCategories = useMemo(() => {
+    const query = channelSearch.trim().toLowerCase();
+    const groups: { [key: string]: { name: string; position: number; channels: GuildChannel[] } } = {};
+
+    for (const c of channels) {
+      const catKey = c.category || "Uncategorized";
+      const matchesSearch = !query || c.name.toLowerCase().includes(query) || catKey.toLowerCase().includes(query);
+      if (!matchesSearch) continue;
+
+      if (!groups[catKey]) {
+        groups[catKey] = {
+          name: catKey,
+          position: c.category_position,
+          channels: []
+        };
+      }
+      groups[catKey].channels.push(c);
+    }
+
+    return Object.values(groups).sort((a, b) => {
+      if (a.position !== b.position) return a.position - b.position;
+      return a.name.localeCompare(b.name);
+    });
+  }, [channels, channelSearch]);
+
+  const channelIdSet = useMemo(() => new Set(channels.map(c => c.id)), [channels]);
 
   const handleConfigChange = (field: keyof GuildConfig, value: any) => {
     if (!config) return;
@@ -285,6 +454,16 @@ export default function SettingsPage() {
               >
                 Warning Reasons
               </button>
+              <button
+                onClick={() => setVerbalSubTab("training")}
+                className={`text-sm font-medium transition-all relative pb-3 -mb-[2px] ${
+                  verbalSubTab === "training" 
+                    ? "text-teal-400 border-b-2 border-teal-400 font-semibold" 
+                    : "text-gray-400 hover:text-white"
+                }`}
+              >
+                Training Wheels
+              </button>
             </div>
           )}
 
@@ -302,6 +481,7 @@ export default function SettingsPage() {
                       <li><strong>Notice Channel:</strong> Where verbal warnings are sent.</li>
                       <li><strong>Commands Channel:</strong> Restrict where Carrot commands can be used.</li>
                       <li><strong>Log Channel:</strong> Receives logs for issued warnings and deleted messages.</li>
+                      <li><strong>Deletion Review Channel:</strong> Where queued post deletion requests are reviewed by higher-ups.</li>
                     </ul>
                   </div>
                 </div>
@@ -327,6 +507,13 @@ export default function SettingsPage() {
                       <div className="group relative flex items-center"><HelpCircle className="w-3.5 h-3.5 text-gray-500 cursor-help" /><div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 hidden group-hover:block w-64 p-2 bg-gray-800 border border-teal-900/50 text-xs text-gray-200 rounded shadow-xl z-50 text-center pointer-events-none whitespace-normal normal-case">Channel where issued warnings and deleted messages are logged.</div></div>
                     </label>
                     <input type="text" disabled={isViewOnly} value={config.staff_log_channel_id || ""} onChange={e => handleIdChange("staff_log_channel_id", e.target.value)} className="w-full bg-surface-dark border border-teal-900/40 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-teal-500/50" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs text-gray-400 font-medium uppercase flex items-center gap-1">
+                      Deletion Review Channel ID
+                      <div className="group relative flex items-center"><HelpCircle className="w-3.5 h-3.5 text-gray-500 cursor-help" /><div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 hidden group-hover:block w-64 p-2 bg-gray-800 border border-teal-900/50 text-xs text-gray-200 rounded shadow-xl z-50 text-center pointer-events-none whitespace-normal normal-case">Channel where post deletion review cards are sent for higher-up approval. Falls back to Staff Commands Channel if empty.</div></div>
+                    </label>
+                    <input type="text" disabled={isViewOnly} value={config.deletion_review_channel_id || ""} onChange={e => handleIdChange("deletion_review_channel_id", e.target.value)} className="w-full bg-surface-dark border border-teal-900/40 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-teal-500/50" />
                   </div>
                   <div className="space-y-1">
                     <label className="text-xs text-gray-400 font-medium uppercase flex items-center gap-1">
@@ -526,6 +713,271 @@ export default function SettingsPage() {
                 )}
               </div>
 
+            </div>
+          )}
+
+          {activeTab === 'verbal' && verbalSubTab === 'training' && (
+            <div className="space-y-8 animate-in fade-in duration-250">
+              <div>
+                <h3 className="text-sm font-semibold text-teal-600/70 uppercase tracking-wider border-b border-teal-900/30 pb-2 mb-4">
+                  Training Wheel Supervision
+                </h3>
+
+                <div className="bg-teal-950/20 border border-teal-500/20 rounded-lg p-4 mb-6 flex gap-3 text-sm text-teal-100/90">
+                  <Info className="w-5 h-5 text-teal-400 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <p>
+                      <strong className="text-teal-300">Supervised Post Deletions:</strong> Staff added here cannot delete posts directly without moderator review, unless exempted in specific channels below.
+                    </p>
+                    <p className="text-xs text-teal-300/70">
+                      Add any user ID below to manage their deletion supervision.
+                    </p>
+                  </div>
+                </div>
+
+                {!isViewOnly && (
+                  <div className="bg-surface-dark/40 border border-white/5 rounded-xl p-5 mb-6">
+                    <h4 className="text-xs text-gray-400 font-medium uppercase tracking-wider mb-3">Add User to Training Wheel</h4>
+                    <div className="flex flex-col sm:flex-row gap-3">
+                      <div className="flex-1">
+                        <input
+                          type="text"
+                          placeholder="Enter Discord User ID (e.g. 123456789012345678)"
+                          value={newUserId}
+                          onChange={e => {
+                            setNewUserId(e.target.value);
+                            if (userAddError) setUserAddError(null);
+                          }}
+                          onKeyDown={e => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              handleAddTrainingWheel();
+                            }
+                          }}
+                          className="w-full bg-surface-darker border border-teal-900/40 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-teal-500/50"
+                        />
+                        {userAddError && (
+                          <p className="text-xs text-red-400 mt-1.5">{userAddError}</p>
+                        )}
+                      </div>
+                      <button
+                        onClick={handleAddTrainingWheel}
+                        disabled={addingUser || !newUserId.trim()}
+                        className="bg-teal-500 hover:bg-teal-600 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-colors shrink-0"
+                      >
+                        <Plus className="w-4 h-4" />
+                        {addingUser ? "Adding..." : "Add User"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-3">
+                  <h4 className="text-xs text-gray-400 font-medium uppercase tracking-wider mb-2">
+                    Supervised Users ({trainingWheels.length})
+                  </h4>
+
+                  {trainingWheels.length === 0 ? (
+                    <div className="bg-surface-dark/30 border border-white/5 rounded-xl p-8 text-center text-gray-400 text-sm">
+                      No users are currently assigned to training wheels. Staff can remove posts directly.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {trainingWheels.map(user => {
+                        const userExemptions = new Set((user.exempt_channels || []).filter(id => channelIdSet.has(id)));
+                        const exemptCount = userExemptions.size;
+                        const totalChannels = channels.length;
+                        const supervisedCount = Math.max(0, totalChannels - exemptCount);
+                        const isExpanded = expandedUserChannels === user.user_id;
+
+                        const triggerLabel = loading
+                          ? "Loading Channels..."
+                          : totalChannels === 0
+                            ? "Channels Unavailable"
+                            : exemptCount === 0
+                              ? `Supervised: All Channels (${totalChannels}/${totalChannels})`
+                              : `Supervised: ${supervisedCount} of ${totalChannels} Channels (${exemptCount} Exempt)`;
+
+                        return (
+                          <div
+                            key={user.user_id}
+                            className="bg-surface-dark/40 border border-white/5 hover:border-white/10 rounded-xl transition-all overflow-hidden"
+                          >
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between px-4 py-3 gap-3">
+                              <div className="flex items-center gap-3 min-w-0">
+                                {user.avatar ? (
+                                  <img
+                                    src={user.avatar}
+                                    alt={user.name}
+                                    className="w-9 h-9 rounded-full shrink-0 border border-teal-500/20"
+                                  />
+                                ) : (
+                                  <div className="w-9 h-9 rounded-full bg-teal-500/10 border border-teal-500/20 flex items-center justify-center text-teal-400 font-semibold text-sm shrink-0">
+                                    {user.name.charAt(0).toUpperCase()}
+                                  </div>
+                                )}
+                                <div className="min-w-0">
+                                  <div className="font-medium text-white text-sm truncate flex items-center gap-2">
+                                    {user.name}
+                                    <span className="text-[10px] bg-teal-500/10 text-teal-400 border border-teal-500/20 px-1.5 py-0.5 rounded uppercase font-semibold">
+                                      Supervised
+                                    </span>
+                                  </div>
+                                  <div className="text-xs text-gray-400 font-mono">
+                                    ID: {user.user_id}
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-2 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setExpandedUserChannels(isExpanded ? null : user.user_id);
+                                    setChannelSearch("");
+                                  }}
+                                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all flex items-center gap-1.5 ${
+                                    isExpanded
+                                      ? "bg-teal-500/20 text-teal-300 border-teal-500/40"
+                                      : exemptCount > 0
+                                        ? "bg-amber-500/10 text-amber-300 border-amber-500/30 hover:bg-amber-500/20"
+                                        : "bg-surface-darker text-gray-300 border-white/10 hover:border-white/20 hover:text-white"
+                                  }`}
+                                >
+                                  <span>{triggerLabel}</span>
+                                  {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                                </button>
+
+                                {!isViewOnly && (
+                                  <button
+                                    onClick={() => handleDeleteTrainingWheel(user.user_id)}
+                                    className="text-red-400 hover:text-red-300 p-2 bg-red-500/5 hover:bg-red-500/15 border border-red-500/10 hover:border-red-500/20 rounded-lg transition-all"
+                                    title="Remove from Training Wheels"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Expanded Channel Selector */}
+                            {isExpanded && (
+                              <div className="border-t border-white/5 bg-surface-darker/40 p-4 space-y-4 animate-in fade-in duration-200">
+                                <div className="flex flex-col sm:flex-row gap-2.5 sm:items-center justify-between">
+                                  <div className="relative flex-1 max-w-sm">
+                                    <Search className="w-4 h-4 text-gray-500 absolute left-3 top-2.5" />
+                                    <input
+                                      type="text"
+                                      value={channelSearch}
+                                      onChange={e => setChannelSearch(e.target.value)}
+                                      placeholder="Search channels..."
+                                      className="w-full bg-surface-dark border border-white/10 rounded-lg pl-9 pr-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-teal-500/50"
+                                    />
+                                  </div>
+
+                                  {!isViewOnly && (
+                                    <div className="flex items-center gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleSelectAllChannels(user.user_id)}
+                                        className="px-2.5 py-1 text-xs rounded bg-surface-dark border border-white/10 text-gray-300 hover:text-white hover:border-white/20 transition-colors"
+                                      >
+                                        Select All
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleDeselectAllChannels(user.user_id)}
+                                        className="px-2.5 py-1 text-xs rounded bg-surface-dark border border-white/10 text-gray-300 hover:text-white hover:border-white/20 transition-colors"
+                                      >
+                                        Deselect All
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+
+                                <div className="text-xs text-gray-400">
+                                  Checked channels require higher-up approval before post deletion. Unchecked channels allow this user to delete posts directly without review.
+                                </div>
+
+                                {/* Categories List */}
+                                <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
+                                  {filteredCategories.length === 0 ? (
+                                    <div className="text-center py-6 text-xs text-gray-500">
+                                      No channels match your search.
+                                    </div>
+                                  ) : (
+                                    filteredCategories.map(cat => {
+                                      const catTotal = cat.channels.length;
+                                      const catSupervised = cat.channels.filter(c => !userExemptions.has(c.id)).length;
+                                      const allCatSupervised = catSupervised === catTotal;
+
+                                      return (
+                                        <div key={cat.name} className="border border-white/5 rounded-lg bg-surface-dark/30 overflow-hidden">
+                                          <div className="flex items-center justify-between px-3 py-2 bg-surface-darker/60 border-b border-white/5">
+                                            <span className="text-xs font-semibold text-gray-300 uppercase tracking-wide">
+                                              {cat.name} ({catSupervised}/{catTotal} Supervised)
+                                            </span>
+                                            {!isViewOnly && (
+                                              <button
+                                                type="button"
+                                                onClick={() => handleToggleCategory(user.user_id, cat.channels)}
+                                                className="text-[11px] font-medium text-teal-400 hover:text-teal-300 transition-colors"
+                                              >
+                                                {allCatSupervised ? "Exempt Category" : "Supervise Category"}
+                                              </button>
+                                            )}
+                                          </div>
+
+                                          <div className="p-2.5 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                                            {cat.channels.map(ch => {
+                                              const isSupervised = !userExemptions.has(ch.id);
+                                              return (
+                                                <label
+                                                  key={ch.id}
+                                                  className={`flex items-center gap-2.5 p-2 rounded-lg border text-xs cursor-pointer transition-all select-none ${
+                                                    isSupervised
+                                                      ? "bg-teal-500/5 border-teal-500/20 text-white hover:border-teal-500/40"
+                                                      : "bg-surface-darker/40 border-white/5 text-gray-400 hover:text-gray-200 hover:border-white/10"
+                                                  }`}
+                                                >
+                                                  <input
+                                                    type="checkbox"
+                                                    disabled={isViewOnly}
+                                                    checked={isSupervised}
+                                                    onChange={() => handleToggleChannel(user.user_id, ch.id)}
+                                                    className="rounded bg-surface-darker border-teal-900/50 text-teal-500 focus:ring-0 focus:ring-offset-0 disabled:opacity-50"
+                                                  />
+                                                  <span className="truncate font-medium flex-1">
+                                                    {ch.name}
+                                                    {ch.type === "forum" && (
+                                                      <span className="ml-1.5 text-[10px] text-gray-500 uppercase">(Forum)</span>
+                                                    )}
+                                                  </span>
+                                                  <span className={`text-[10px] font-semibold shrink-0 px-1.5 py-0.5 rounded ${
+                                                    isSupervised
+                                                      ? "bg-teal-500/10 text-teal-400"
+                                                      : "bg-amber-500/10 text-amber-400"
+                                                  }`}>
+                                                    {isSupervised ? "Supervised" : "Exempt"}
+                                                  </span>
+                                                </label>
+                                              );
+                                            })}
+                                          </div>
+                                        </div>
+                                      );
+                                    })
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           )}
 

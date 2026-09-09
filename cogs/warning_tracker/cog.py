@@ -15,7 +15,12 @@ from .ui import (
     WarningsPaginationView,
     StaffWarningsPaginationView,
     HelpPaginationView,
-    EditVerbalReasonSelect
+    EditVerbalReasonSelect,
+    PendingDeletionReviewView,
+    RejectDeletionModal,
+    EditPendingReasonSelect,
+    EditPendingReasonView,
+    is_higher_up
 )
 
 class WarningTracker(commands.Cog):
@@ -82,7 +87,9 @@ class WarningTracker(commands.Cog):
         
         # Check role
         is_admin = interaction.user.guild_permissions.administrator if interaction.guild else False
-        if interaction.user.id != 255174440005009408 and not is_admin and not any(role.id in staff_role_ids for role in interaction.user.roles):
+        user_role_ids = [r.id for r in interaction.user.roles] if hasattr(interaction.user, 'roles') else []
+        on_wheels = await database.is_user_on_training_wheels(interaction.guild_id or 0, interaction.user.id, user_role_ids, config)
+        if interaction.user.id != 255174440005009408 and not is_admin and not on_wheels and not any(role.id in staff_role_ids for role in interaction.user.roles):
             await interaction.followup.send("You do not have the required staff role to use this command.", ephemeral=True)
             return
 
@@ -163,13 +170,17 @@ class WarningTracker(commands.Cog):
 
         
         # Extract text content (checking snapshots for forwarded messages)
-        resolved_content = original_content
-        if not resolved_content and hasattr(message, "message_snapshots") and message.message_snapshots:
+        resolved_content = original_content or ""
+        if hasattr(message, "message_snapshots") and message.message_snapshots:
             snapshot_contents = []
             for snapshot in message.message_snapshots:
                 snap_txt = snapshot.content or "*No text content*"
                 snapshot_contents.append(f"(Forwarded Message) {snap_txt}")
-            resolved_content = "\n".join(snapshot_contents)
+            if snapshot_contents:
+                if resolved_content:
+                    resolved_content = resolved_content + "\n" + "\n".join(snapshot_contents)
+                else:
+                    resolved_content = "\n".join(snapshot_contents)
 
         if not resolved_content:
             resolved_content = "*No text content*"
@@ -350,9 +361,12 @@ class WarningTracker(commands.Cog):
                 print(f"Could not DM user {message.author.id}: {e}")
 
         # Warning threshold check (3 warnings in 3 months)
-        count = await database.get_warnings_count_last_3_months(message.author.id, guild_id=message.guild.id if message.guild else None)
+        await self._check_and_send_threshold_alert(message.guild.id if message.guild else 0, message.author.id, fallback_staff_id=interaction.user.id)
+
+    async def _check_and_send_threshold_alert(self, guild_id: int, author_id: int, fallback_staff_id: int = None):
+        count = await database.get_warnings_count_last_3_months(author_id, guild_id=guild_id)
         if count >= 3:
-            guild_config = await database.get_guild_config(message.guild.id if message.guild else 0)
+            guild_config = await database.get_guild_config(guild_id)
             commands_channel_id = guild_config.get("staff_commands_channel_id") or 0
             commands_channel = self.bot.get_channel(commands_channel_id)
             if not commands_channel and commands_channel_id:
@@ -361,7 +375,7 @@ class WarningTracker(commands.Cog):
                 except Exception:
                     pass
             if commands_channel:
-                last_warnings = await database.get_warnings_last_3_months(message.author.id, guild_id=message.guild.id if message.guild else None)
+                last_warnings = await database.get_warnings_last_3_months(author_id, guild_id=guild_id)
                 last_warnings.reverse()
                 
                 formatted_warnings = []
@@ -401,13 +415,14 @@ class WarningTracker(commands.Cog):
                 if truncated_any:
                     warnings_str += "\n*(Older warnings truncated to fit Discord message limits...)*"
                 
-                # Fetch last staff member who warned this user
-                last_staff_id = await database.get_last_warning_staff_id_last_3_months(message.author.id)
-                staff_mention = f"<@{last_staff_id}>" if last_staff_id else interaction.user.mention
+                last_staff_id = await database.get_last_warning_staff_id_last_3_months(author_id, guild_id=guild_id)
+                if not last_staff_id and fallback_staff_id:
+                    last_staff_id = fallback_staff_id
+                staff_mention = f"<@{last_staff_id}>" if last_staff_id else "@here"
                 
                 embed = discord.Embed(
                     title="⚠️ Warning Threshold Reached",
-                    description=f"User {message.author.mention} ({message.author.id}) has accumulated **{count}** verbal notice(s) within 3 months. Please take immediate action.\n\n**Recent Warning History:**\n{warnings_str}",
+                    description=f"User <@{author_id}> ({author_id}) has accumulated **{count}** verbal notice(s) within 3 months. Please take immediate action.\n\n**Recent Warning History:**\n{warnings_str}",
                     color=discord.Color.red()
                 )
                 
@@ -417,6 +432,793 @@ class WarningTracker(commands.Cog):
                     embed=embed,
                     allowed_mentions=allowed_mentions
                 )
+
+    async def queue_removal(self, interaction: discord.Interaction, message: discord.Message, reason: str, original_content: str):
+        config = await database.get_guild_config(interaction.guild_id or 0)
+        review_channel_id = config.get("deletion_review_channel_id") or config.get("staff_commands_channel_id") or 0
+
+        # Validate review channel before writing to database or disk
+        review_channel = self.bot.get_channel(review_channel_id)
+        if not review_channel and review_channel_id:
+            try:
+                review_channel = await asyncio.wait_for(self.bot.fetch_channel(review_channel_id), timeout=5.0)
+            except Exception:
+                pass
+
+        if not review_channel:
+            await interaction.followup.send(
+                f"Warning: Could not access the deletion review channel (ID: {review_channel_id}). Please check bot permissions and channel ID.",
+                ephemeral=True
+            )
+            return
+
+        # 1. Save attachments immediately before anything changes
+        all_attachments = list(message.attachments)
+        if hasattr(message, "message_snapshots") and message.message_snapshots:
+            for snapshot in message.message_snapshots:
+                if hasattr(snapshot, "attachments") and snapshot.attachments:
+                    all_attachments.extend(snapshot.attachments)
+
+        import json
+        import uuid
+        import os
+        saved_attachments = []
+        for a in all_attachments:
+            try:
+                ext = os.path.splitext(a.filename)[1]
+                unique_filename = f"{uuid.uuid4()}{ext}"
+                file_path = os.path.join(database.ATTACHMENTS_DIR, unique_filename)
+                await a.save(file_path)
+                saved_attachments.append({
+                    "filename": a.filename,
+                    "stored_filename": unique_filename
+                })
+            except Exception as e:
+                print(f"Failed to download/save attachment {a.filename}: {e}")
+                
+        attachments_data = json.dumps(saved_attachments) if saved_attachments else None
+
+        # 2. Resolve content
+        resolved_content = original_content or ""
+        if hasattr(message, "message_snapshots") and message.message_snapshots:
+            snapshot_contents = []
+            for snapshot in message.message_snapshots:
+                snap_txt = snapshot.content or "*No text content*"
+                snapshot_contents.append(f"(Forwarded Message) {snap_txt}")
+            if snapshot_contents:
+                if resolved_content:
+                    resolved_content = resolved_content + "\n" + "\n".join(snapshot_contents)
+                else:
+                    resolved_content = "\n".join(snapshot_contents)
+
+        if not resolved_content:
+            resolved_content = "*No text content*"
+
+        marked_at = datetime.now(timezone.utc).isoformat()
+        post_created_at = message.created_at.isoformat()
+
+        # 3. Add to pending_post_deletions table
+        pending_id = await database.add_pending_post_deletion(
+            guild_id=message.guild.id if message.guild else (interaction.guild_id or 0),
+            channel_id=message.channel.id,
+            message_id=message.id,
+            author_id=message.author.id,
+            staff_id=interaction.user.id,
+            reason=reason,
+            original_content=resolved_content,
+            post_created_at=post_created_at,
+            marked_at=marked_at,
+            attachments=attachments_data
+        )
+
+        # 4. Send exact post preview (content + attachments) to review channel
+        preview_content = resolved_content if resolved_content != "*No text content*" else ""
+        if len(preview_content) > 2000:
+            preview_content = preview_content[:1997] + "..."
+
+        preview_files = []
+        for att in saved_attachments:
+            try:
+                file_path = os.path.join(database.ATTACHMENTS_DIR, att["stored_filename"])
+                if os.path.exists(file_path):
+                    preview_files.append(discord.File(file_path, filename=att["filename"]))
+            except Exception as fe:
+                print(f"Error preparing file for preview: {fe}")
+
+        files_to_send = preview_files[:10] if preview_files else None
+        if len(preview_files) > 10:
+            for extra_f in preview_files[10:]:
+                extra_f.close()
+            overflow_note = f"\n*(Showing 10 of {len(preview_files)} attachments in preview)*"
+            if len(preview_content) + len(overflow_note) <= 2000:
+                preview_content += overflow_note
+            else:
+                preview_content = preview_content[:2000 - len(overflow_note)] + overflow_note
+
+        send_content = preview_content or (None if files_to_send else "*No text content*")
+        preview_msg = None
+        try:
+            preview_msg = await review_channel.send(
+                content=send_content,
+                files=files_to_send,
+                allowed_mentions=discord.AllowedMentions.none()
+            )
+        except Exception as e:
+            print(f"Failed to send preview message with attachments: {e}")
+            try:
+                fallback_content = preview_content or "*No text content*"
+                if preview_files:
+                    fallback_content += "\n*(Attachments could not be previewed)*"
+                preview_msg = await review_channel.send(
+                    content=fallback_content,
+                    allowed_mentions=discord.AllowedMentions.none()
+                )
+            except Exception as e2:
+                print(f"Failed to send fallback preview message: {e2}")
+
+        # 5. Post review card to deletion review channel as reply to preview
+        orig_ts = int(message.created_at.timestamp())
+        marked_ts = int(datetime.fromisoformat(marked_at).timestamp())
+
+        review_embed = discord.Embed(
+            title="Pending Post Deletion",
+            color=discord.Color.yellow(),
+            description="A post has been marked for deletion and is waiting for higher-up review."
+        )
+        review_embed.add_field(name="Marked By", value=f"{interaction.user.mention} ({interaction.user.id})", inline=True)
+        review_embed.add_field(name="Original Author", value=f"{message.author.mention} ({message.author.id})", inline=True)
+        review_embed.add_field(name="Channel", value=f"{get_channel_mention(message.channel)} • [Jump to Message]({message.jump_url})", inline=True)
+        review_embed.add_field(name="Original Post Created At", value=f"<t:{orig_ts}:f> (<t:{orig_ts}:R>)", inline=True)
+        review_embed.add_field(name="Marked For Deletion At", value=f"<t:{marked_ts}:f> (<t:{marked_ts}:R>)", inline=True)
+        
+        reason_text = reason
+        if len(reason_text) > 1024:
+            reason_text = reason_text[:1021] + "..."
+        review_embed.add_field(name="Removal Reason", value=reason_text, inline=False)
+
+        # Only add content snippet and attachments to embed if preview message could not be sent
+        if not preview_msg:
+            content_snippet = resolved_content
+            if len(content_snippet) > 800:
+                content_snippet = content_snippet[:797] + "..."
+            review_embed.add_field(name="Original Post Content", value=f"```\n{content_snippet}\n```", inline=False)
+
+            if saved_attachments:
+                att_names = ", ".join([f"`{a['filename']}`" for a in saved_attachments])
+                if len(att_names) > 1024:
+                    att_names = att_names[:1021] + "..."
+                review_embed.add_field(name="Attachments", value=att_names, inline=False)
+
+        review_view = PendingDeletionReviewView(pending_id, cog=self)
+        if preview_msg:
+            try:
+                review_msg = await preview_msg.reply(embed=review_embed, view=review_view, mention_author=False)
+            except Exception as e:
+                print(f"Failed to reply to preview message: {e}")
+                review_msg = await review_channel.send(embed=review_embed, view=review_view)
+        else:
+            review_msg = await review_channel.send(embed=review_embed, view=review_view)
+        
+        await database.update_pending_post_deletion_review_msg(pending_id, review_msg.id)
+
+        await interaction.followup.send(
+            "Post has been queued for deletion and sent to the review channel for higher-up approval.",
+            ephemeral=True
+        )
+
+    async def _get_review_message(self, interaction: discord.Interaction, review_msg_id: int, config: dict):
+        if interaction.message and interaction.message.id == review_msg_id:
+            return interaction.message
+        if interaction.channel:
+            try:
+                return await interaction.channel.fetch_message(review_msg_id)
+            except Exception:
+                pass
+        review_channel_id = config.get("deletion_review_channel_id") or config.get("staff_commands_channel_id") or 0
+        if review_channel_id:
+            chan = self.bot.get_channel(review_channel_id)
+            if not chan:
+                try:
+                    chan = await self.bot.fetch_channel(review_channel_id)
+                except Exception:
+                    chan = None
+            if chan:
+                try:
+                    return await chan.fetch_message(review_msg_id)
+                except Exception:
+                    pass
+        return None
+
+    async def cancel_pending_deletion(self, interaction: discord.Interaction, pending: dict, reason: str = "Original post was already deleted from chat."):
+        pending_id = pending["id"]
+        # Clean up temporary attachments
+        if pending.get("attachments"):
+            database._delete_files_for_attachments(pending["attachments"])
+
+        # Update database status
+        await database.update_pending_post_deletion_status(pending_id, "cancelled", reject_reason=reason)
+
+        # Update review card in review channel
+        config = await database.get_guild_config(interaction.guild_id or 0)
+        review_msg_id = pending.get("review_message_id")
+        if review_msg_id:
+            rev_msg = await self._get_review_message(interaction, review_msg_id, config)
+            if rev_msg and rev_msg.embeds:
+                emb = rev_msg.embeds[0]
+                emb.color = discord.Color.dark_grey()
+                emb.title = "Pending Post Deletion [CANCELLED]"
+                now_ts = int(datetime.now(timezone.utc).timestamp())
+                actioned_val = f"Cancelled on <t:{now_ts}:f>\n**Reason:** {reason}"
+                emb.add_field(name="Actioned", value=actioned_val, inline=False)
+                try:
+                    await rev_msg.edit(embed=emb, view=None)
+                except Exception as e:
+                    print(f"Could not update review message: {e}")
+
+        await interaction.followup.send(
+            f"The request has been cancelled: {reason} No warning was issued.",
+            ephemeral=True
+        )
+
+    async def approve_pending_deletion(self, interaction: discord.Interaction, pending_id: int):
+        pending = await database.get_pending_post_deletion(pending_id)
+        if not pending:
+            await interaction.response.send_message("Pending deletion request not found.", ephemeral=True)
+            return
+
+        if pending.get("status") != "pending":
+            st = pending.get("status", "actioned")
+            config = await database.get_guild_config(interaction.guild_id or 0)
+            review_msg_id = pending.get("review_message_id")
+            if review_msg_id:
+                rev_msg = await self._get_review_message(interaction, review_msg_id, config)
+                if rev_msg and rev_msg.embeds:
+                    emb = rev_msg.embeds[0]
+                    is_corr = (st == "approved_with_correction") or (bool(pending.get("original_reason")) and pending.get("original_reason") != pending.get("reason"))
+                    if st in ("approved", "approved_with_correction"):
+                        emb.color = discord.Color.green()
+                        emb.title = "Pending Post Deletion [APPROVED WITH CORRECTION]" if is_corr else "Pending Post Deletion [APPROVED]"
+                    elif st == "rejected":
+                        emb.color = discord.Color.red()
+                        emb.title = "Pending Post Deletion [REJECTED]"
+                    elif st == "cancelled":
+                        emb.color = discord.Color.dark_grey()
+                        emb.title = "Pending Post Deletion [CANCELLED]"
+                    try:
+                        await rev_msg.edit(embed=emb, view=None)
+                    except Exception:
+                        pass
+            await interaction.response.send_message(f"This request has already been actioned ({st}).", ephemeral=True)
+            return
+
+        # Atomically claim request to prevent concurrent approval/rejection races
+        if not await database.claim_pending_post_deletion(pending_id):
+            await interaction.response.send_message("This request is already being processed or has been actioned.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        config = await database.get_guild_config(interaction.guild_id or 0)
+        notice_channel_id = config.get("staff_notice_channel_id") or 0
+        log_channel_id = config.get("staff_log_channel_id") or 0
+
+        # 1. Fetch and delete the message in target channel
+        channel_id = pending["channel_id"]
+        message_id = pending["message_id"]
+        channel = self.bot.get_channel(channel_id)
+        if not channel:
+            try:
+                channel = await self.bot.fetch_channel(channel_id)
+            except Exception:
+                channel = None
+
+        if not channel:
+            await self.cancel_pending_deletion(interaction, pending, reason="Original channel no longer exists.")
+            return
+
+        target_message = None
+        try:
+            target_message = await channel.fetch_message(message_id)
+            await target_message.delete()
+        except discord.NotFound:
+            await self.cancel_pending_deletion(interaction, pending, reason="Original post was already deleted from chat.")
+            return
+        except discord.HTTPException as e:
+            await database.update_pending_post_deletion_status(pending_id, "pending")
+            err_msg = f"Failed to delete the message: {e}"
+            if e.code == 50013:
+                err_msg += f"\n\n**Note:** The bot is missing the `Manage Messages` permission in <#{channel_id}>. Please grant permissions and try again."
+            await interaction.followup.send(err_msg, ephemeral=True)
+            return
+        except Exception as e:
+            await database.update_pending_post_deletion_status(pending_id, "pending")
+            print(f"Error deleting target message {message_id}: {e}")
+            await interaction.followup.send(f"An unexpected error occurred while deleting the message: {e}", ephemeral=True)
+            return
+
+        # 2. Post warning notice in staff-notice
+        notice_channel = self.bot.get_channel(notice_channel_id)
+        if not notice_channel and notice_channel_id:
+            try:
+                notice_channel = await asyncio.wait_for(self.bot.fetch_channel(notice_channel_id), timeout=5.0)
+            except Exception:
+                pass
+
+        author_id = pending["author_id"]
+        reason = pending["reason"]
+        notice_msg = None
+        if notice_channel:
+            try:
+                allowed_mentions = discord.AllowedMentions(everyone=False, roles=False, users=True)
+                notice_content = f"<@{author_id}> {reason}"
+                if len(notice_content) > 2000:
+                    notice_content = notice_content[:1997] + "..."
+                notice_msg = await notice_channel.send(content=notice_content, allowed_mentions=allowed_mentions)
+            except Exception as e:
+                print(f"Error sending notice message: {e}")
+
+        # 3. Add warning to database (crediting person who marked it, with marked_at timestamp)
+        warn_channel_id = notice_channel_id if notice_msg else channel_id
+        warn_message_id = notice_msg.id if notice_msg else 0
+        
+        marked_at_str = pending["marked_at"]
+        marked_dt = None
+        warned_at_formatted = None
+        try:
+            marked_dt = datetime.fromisoformat(marked_at_str.replace("Z", "+00:00"))
+            warned_at_formatted = marked_dt.astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+        except Exception:
+            pass
+
+        warn_id = await database.add_warning(
+            user_id=author_id,
+            channel_id=warn_channel_id,
+            message_id=warn_message_id,
+            message_content=pending["original_content"],
+            staff_id=pending["staff_id"],
+            reason=reason,
+            warned_at=warned_at_formatted,
+            post_created_at=pending["post_created_at"],
+            guild_id=pending["guild_id"],
+            attachments=pending["attachments"]
+        )
+
+        # 4. Log to staff log channel
+        dashboard_url = os.getenv("DASHBOARD_URL", "localhost:3000")
+        if dashboard_url.startswith("http://") or dashboard_url.startswith("https://"):
+            base_url = dashboard_url
+        else:
+            clean_host = dashboard_url.split(":")[0]
+            is_ip = clean_host.replace(".", "").isdigit() or clean_host == "localhost"
+            protocol = "http" if is_ip else "https"
+            base_url = f"{protocol}://{dashboard_url}"
+
+        web_log_url = f"{base_url}/guilds/{pending['guild_id']}/logs/warnings/{warn_id}"
+        log_msg = None
+
+        log_channel = self.bot.get_channel(log_channel_id)
+        if not log_channel and log_channel_id:
+            try:
+                log_channel = await asyncio.wait_for(self.bot.fetch_channel(log_channel_id), timeout=5.0)
+            except Exception:
+                pass
+
+        if log_channel:
+            try:
+                post_created_dt = datetime.fromisoformat(pending["post_created_at"].replace("Z", "+00:00"))
+                orig_ts = int(post_created_dt.timestamp())
+            except Exception:
+                orig_ts = int(datetime.now(timezone.utc).timestamp())
+
+            try:
+                marked_ts = int(marked_dt.timestamp()) if marked_dt else int(datetime.now(timezone.utc).timestamp())
+            except Exception:
+                marked_ts = int(datetime.now(timezone.utc).timestamp())
+
+            is_corrected = bool(pending.get("original_reason") and pending.get("original_reason") != reason)
+            log_title = "Log: Post Removed [Approved with Correction]" if is_corrected else "Log: Post Removed"
+            log_embed = discord.Embed(
+                title=log_title,
+                color=discord.Color.orange()
+            )
+            log_embed.add_field(name="Warning ID", value=f"#{warn_id}", inline=False)
+            log_embed.add_field(name="Staff Member", value=f"<@{pending['staff_id']}> ({pending['staff_id']})", inline=True)
+            log_embed.add_field(name="Original Author", value=f"<@{author_id}> ({author_id})", inline=True)
+            log_embed.add_field(name="Channel", value=f"<#{channel_id}>", inline=True)
+            log_embed.add_field(name="Original Post Created At", value=f"<t:{orig_ts}:f> (<t:{orig_ts}:R>)", inline=True)
+            log_embed.add_field(name="Marked For Deletion At", value=f"<t:{marked_ts}:f> (<t:{marked_ts}:R>)", inline=True)
+            approved_by_val = f"{interaction.user.mention} ({interaction.user.id}) (with correction)" if is_corrected else f"{interaction.user.mention} ({interaction.user.id})"
+            log_embed.add_field(name="Approved By", value=approved_by_val, inline=True)
+
+            reason_text = reason
+            if len(reason_text) > 1024:
+                reason_text = reason_text[:1021] + "..."
+            log_embed.add_field(name="Removal Reason", value=reason_text, inline=False)
+
+            dashboard_url = os.getenv("DASHBOARD_URL", "localhost:3000")
+            if dashboard_url.startswith("http://") or dashboard_url.startswith("https://"):
+                base_url = dashboard_url
+            else:
+                clean_host = dashboard_url.split(":")[0]
+                is_ip = clean_host.replace(".", "").isdigit() or clean_host == "localhost"
+                protocol = "http" if is_ip else "https"
+                base_url = f"{protocol}://{dashboard_url}"
+            
+            log_link = f"[log]({base_url}/guilds/{pending['guild_id']}/logs/warnings/{warn_id})"
+
+            content_snippet = pending["original_content"]
+            allowed_len = 1024 - 11 - len(log_link)
+            max_len = min(800, allowed_len - 3)
+            if len(content_snippet) > max_len:
+                content_snippet = content_snippet[:max_len] + "..."
+
+            import json
+            saved_attachments = []
+            if pending["attachments"]:
+                try:
+                    saved_attachments = json.loads(pending["attachments"])
+                except Exception:
+                    pass
+
+            if saved_attachments:
+                log_embed.add_field(
+                    name="Original Post Content",
+                    value=f"```\n{content_snippet}\n```",
+                    inline=False
+                )
+                att_text = ", ".join([f"`{a['filename']}`" for a in saved_attachments])
+                if len(att_text) > 1000:
+                    att_text = att_text[:997] + "..."
+                att_text += f"\n\n{log_link}"
+                log_embed.add_field(name="Attachments", value=att_text, inline=False)
+            else:
+                log_embed.add_field(
+                    name="Original Post Content",
+                    value=f"```\n{content_snippet}\n```\n{log_link}",
+                    inline=False
+                )
+
+            try:
+                log_msg = await log_channel.send(embed=log_embed)
+            except Exception as e:
+                print(f"Error sending staff log embed: {e}")
+
+        # 5. DM the user if dm_on_warning is enabled
+        author_user = self.bot.get_user(author_id)
+        if not author_user:
+            try:
+                author_user = await self.bot.fetch_user(author_id)
+            except Exception:
+                pass
+
+        if author_user and not author_user.bot:
+            try:
+                count = await database.get_warnings_count_last_3_months(author_id, guild_id=pending["guild_id"])
+                previous_warnings = await database.get_warnings_last_3_months(author_id, guild_id=pending["guild_id"])
+                history = previous_warnings[1:] if len(previous_warnings) > 1 else []
+                is_repeat = is_repeated_offense(reason, history)
+                
+                try:
+                    timestamp_str = marked_dt.strftime("%d/%m/%Y") if marked_dt else datetime.now(timezone.utc).strftime("%d/%m/%Y")
+                except Exception:
+                    timestamp_str = datetime.now(timezone.utc).strftime("%d/%m/%Y")
+
+                embed = discord.Embed(color=discord.Color.red())
+                guild = self.bot.get_guild(pending["guild_id"])
+                guild_name = guild.name if guild else "this server"
+                icon_url = guild.icon.url if guild and guild.icon else self.bot.user.display_avatar.url
+                embed.set_author(name=f"{guild_name} | {timestamp_str}", icon_url=icon_url)
+
+                ordinal_num = get_ordinal(count)
+                desc = f"### This is your {ordinal_num} verbal warning\n\n"
+                suffix = "" if "server" in guild_name.lower() else " server"
+                desc += f"You have received a __verbal warning__ in {guild_name}{suffix} for:\n"
+
+                context_reason = reason
+                if len(context_reason) > 1200:
+                    context_reason = context_reason[:1197] + "..."
+
+                quoted_lines = [f"> {line}" for line in context_reason.split('\n')]
+                desc += "\n".join(quoted_lines) + "\n"
+
+                if is_repeat:
+                    desc += "\n⚠️ **Note:** You have received a verbal notice for the same offense in the last 3 months. Repeated offenses may lead to stricter actions.\n"
+                elif count == 2:
+                    desc += "\n⚠️ **This is your 2nd verbal notice in the last 3 months.** Accumulating one more notice will result in further staff action.\n"
+
+                jump_url = notice_msg.jump_url if notice_msg else "https://discord.com"
+                desc += f"\n**[Link to verbal warn]({jump_url})**\n\n"
+                desc += "-# In case of questions, or if you believe you've been warned by mistake; please contact <@501746915218554881> for appeal or concerns."
+
+                embed.description = desc
+                embed.set_footer(text="Verbal warnings expire every 3 months.")
+
+                if config.get("dm_on_warning", 1):
+                    await author_user.send(embed=embed)
+                    
+                    files = []
+                    for att in saved_attachments:
+                        try:
+                            file_path = os.path.join(database.ATTACHMENTS_DIR, att["stored_filename"])
+                            if os.path.exists(file_path):
+                                files.append(discord.File(file_path, filename=att["filename"]))
+                        except Exception:
+                            pass
+
+                    content_display = pending["original_content"]
+                    if len(content_display) > 2048:
+                        content_display = content_display[:2045] + "..."
+
+                    followup_embed = discord.Embed(
+                        title="Removed post",
+                        description=content_display,
+                        color=discord.Color.light_grey()
+                    )
+                    if files:
+                        await author_user.send(embed=followup_embed, files=files)
+                    else:
+                        await author_user.send(embed=followup_embed)
+            except Exception as e:
+                print(f"Could not DM user {author_id}: {e}")
+
+        # 6. Update pending record status
+        approval_status = "approved_with_correction" if is_corrected else "approved"
+        await database.update_pending_post_deletion_status(pending_id, approval_status)
+
+        # 7. Update review card message in staff channel
+        review_msg_id = pending.get("review_message_id")
+        if review_msg_id:
+            rev_msg = await self._get_review_message(interaction, review_msg_id, config)
+            if rev_msg and rev_msg.embeds:
+                emb = rev_msg.embeds[0]
+                emb.color = discord.Color.green()
+                now_ts = int(datetime.now(timezone.utc).timestamp())
+                if is_corrected:
+                    emb.title = "Pending Post Deletion [APPROVED WITH CORRECTION]"
+                    actioned_val = f"Approved with correction by {interaction.user.mention} on <t:{now_ts}:f>"
+                else:
+                    emb.title = "Pending Post Deletion [APPROVED]"
+                    actioned_val = f"Approved by {interaction.user.mention} on <t:{now_ts}:f>"
+                links = []
+                if log_msg:
+                    links.append(f"[Discord Log]({log_msg.jump_url})")
+                if web_log_url:
+                    links.append(f"[Website Log]({web_log_url})")
+                if links:
+                    actioned_val += f"\n{' • '.join(links)}"
+                emb.add_field(name="Actioned", value=actioned_val, inline=False)
+                try:
+                    await rev_msg.edit(embed=emb, view=None)
+                except Exception as e:
+                    print(f"Could not update review message: {e}")
+
+        # 8. Ping the staff member who submitted the deletion request
+        staff_id = pending.get("staff_id")
+        if staff_id and staff_id != interaction.user.id:
+            if is_corrected:
+                app_embed = discord.Embed(
+                    title="Post Deletion Approved (Reason Corrected)",
+                    description=f"Your post deletion request was approved by {interaction.user.mention} with a corrected reason.",
+                    color=discord.Color.gold()
+                )
+                app_embed.add_field(name="Submitted Reason", value=pending.get("original_reason") or "None", inline=False)
+                app_embed.add_field(name="Corrected Reason", value=reason, inline=False)
+            else:
+                app_embed = discord.Embed(
+                    title="Post Deletion Approved",
+                    description=f"Your post deletion request was approved by {interaction.user.mention}.",
+                    color=discord.Color.green()
+                )
+                if reason:
+                    reason_val = reason if len(reason) <= 1024 else reason[:1021] + "..."
+                    app_embed.add_field(name="Reason", value=reason_val, inline=False)
+
+            ping_text = f"<@{staff_id}>"
+            if rev_msg:
+                try:
+                    await rev_msg.reply(content=ping_text, embed=app_embed)
+                except Exception as e:
+                    print(f"Could not reply to review message: {e}")
+            elif interaction.channel:
+                try:
+                    await interaction.channel.send(content=ping_text, embed=app_embed)
+                except Exception as e:
+                    print(f"Could not send approval ping: {e}")
+
+        # 9. Check warning threshold (3 warnings in 3 months)
+        await self._check_and_send_threshold_alert(pending["guild_id"], author_id, fallback_staff_id=pending["staff_id"])
+
+        await interaction.followup.send("Post deletion approved and executed successfully.", ephemeral=True)
+
+    async def reject_pending_deletion(self, interaction: discord.Interaction, pending_id: int, reject_reason: str = "No reason provided."):
+        pending = await database.get_pending_post_deletion(pending_id)
+        if not pending:
+            await interaction.response.send_message("Pending deletion request not found.", ephemeral=True)
+            return
+
+        if pending.get("status") != "pending":
+            st = pending.get("status", "actioned")
+            config = await database.get_guild_config(interaction.guild_id or 0)
+            review_msg_id = pending.get("review_message_id")
+            if review_msg_id:
+                rev_msg = await self._get_review_message(interaction, review_msg_id, config)
+                if rev_msg and rev_msg.embeds:
+                    emb = rev_msg.embeds[0]
+                    if st == "rejected":
+                        emb.color = discord.Color.red()
+                        emb.title = "Pending Post Deletion [REJECTED]"
+                    elif st in ("approved", "approved_with_correction"):
+                        emb.color = discord.Color.green()
+                        is_corr = (st == "approved_with_correction") or (bool(pending.get("original_reason")) and pending.get("original_reason") != pending.get("reason"))
+                        emb.title = "Pending Post Deletion [APPROVED WITH CORRECTION]" if is_corr else "Pending Post Deletion [APPROVED]"
+                    elif st == "cancelled":
+                        emb.color = discord.Color.dark_grey()
+                        emb.title = "Pending Post Deletion [CANCELLED]"
+                    try:
+                        await rev_msg.edit(embed=emb, view=None)
+                    except Exception:
+                        pass
+            await interaction.response.send_message(f"This request has already been actioned ({st}).", ephemeral=True)
+            return
+
+        # Atomically claim request to prevent concurrent approval/rejection races
+        if not await database.claim_pending_post_deletion(pending_id):
+            await interaction.response.send_message("This request is already being processed or has been actioned by someone else.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        # 1. Clean up temporary attachments from disk
+        if pending.get("attachments"):
+            database._delete_files_for_attachments(pending["attachments"])
+
+        # 2. Update status
+        staff_id = pending.get("staff_id")
+        is_self = (staff_id == interaction.user.id)
+        new_status = "cancelled" if is_self else "rejected"
+        await database.update_pending_post_deletion_status(pending_id, new_status, reject_reason=reject_reason)
+
+        # 3. Update review card message in staff channel
+        config = await database.get_guild_config(interaction.guild_id or 0)
+        review_msg_id = pending.get("review_message_id")
+        rev_msg = None
+        if review_msg_id:
+            rev_msg = await self._get_review_message(interaction, review_msg_id, config)
+            if rev_msg and rev_msg.embeds:
+                emb = rev_msg.embeds[0]
+                now_ts = int(datetime.now(timezone.utc).timestamp())
+                if is_self:
+                    emb.color = discord.Color.dark_grey()
+                    emb.title = "Pending Post Deletion [WITHDRAWN]"
+                    actioned_val = f"Withdrawn by {interaction.user.mention} on <t:{now_ts}:f>"
+                else:
+                    emb.color = discord.Color.red()
+                    emb.title = "Pending Post Deletion [REJECTED]"
+                    actioned_val = f"Rejected by {interaction.user.mention} on <t:{now_ts}:f>"
+                if reject_reason and reject_reason != "No reason provided.":
+                    actioned_val += f"\n**Reason:** {reject_reason}"
+                emb.add_field(name="Actioned", value=actioned_val, inline=False)
+                try:
+                    await rev_msg.edit(embed=emb, view=None)
+                except Exception as e:
+                    print(f"Could not update review message: {e}")
+
+        # 4. Ping the staff member who submitted the deletion request (if not self)
+        if staff_id and not is_self:
+            reject_embed = discord.Embed(
+                title="Post Deletion Rejected",
+                description=f"Your post deletion request was rejected by {interaction.user.mention}.",
+                color=discord.Color.red()
+            )
+            if reject_reason:
+                reason_val = reject_reason if len(reject_reason) <= 1024 else reject_reason[:1021] + "..."
+                reject_embed.add_field(name="Reason", value=reason_val, inline=False)
+
+            ping_text = f"<@{staff_id}>"
+            if rev_msg:
+                try:
+                    await rev_msg.reply(content=ping_text, embed=reject_embed)
+                except Exception as e:
+                    print(f"Could not reply to review message: {e}")
+            elif interaction.channel:
+                try:
+                    await interaction.channel.send(content=ping_text, embed=reject_embed)
+                except Exception as e:
+                    print(f"Could not send rejection ping: {e}")
+
+        if is_self:
+            await interaction.followup.send("You have withdrawn your post deletion request.", ephemeral=True)
+        else:
+            await interaction.followup.send("Post deletion request has been rejected with no post deletion or log.", ephemeral=True)
+
+    async def edit_pending_deletion_reason(self, interaction: discord.Interaction, pending_id: int):
+        pending = await database.get_pending_post_deletion(pending_id)
+        if not pending:
+            await interaction.response.send_message("Pending deletion request not found.", ephemeral=True)
+            return
+
+        if pending.get("status") != "pending":
+            await interaction.response.send_message("This request is no longer pending.", ephemeral=True)
+            return
+
+        reasons_db = await database.get_all_verbal_reasons(interaction.guild_id or 0)
+        if not reasons_db:
+            await interaction.response.send_message("No verbal reasons configured in the database.", ephemeral=True)
+            return
+
+        channel_mention = f"<#{pending['channel_id']}>"
+        view = EditPendingReasonView(EditPendingReasonSelect(pending_id, self, reasons_db, channel_mention))
+        await interaction.response.send_message("Select a new removal reason:", view=view, ephemeral=True)
+
+    async def apply_edited_reason(self, interaction: discord.Interaction, pending_id: int, new_reason: str):
+        pending = await database.get_pending_post_deletion(pending_id)
+        if not pending or pending.get("status") != "pending":
+            await interaction.response.send_message("Request is no longer pending.", ephemeral=True)
+            return
+
+        await database.update_pending_post_deletion_reason(pending_id, new_reason)
+
+        # Edit review embed
+        config = await database.get_guild_config(interaction.guild_id or 0)
+        review_msg_id = pending.get("review_message_id")
+        if review_msg_id:
+            rev_msg = await self._get_review_message(interaction, review_msg_id, config)
+            if rev_msg and rev_msg.embeds:
+                emb = rev_msg.embeds[0]
+                reason_text = new_reason
+                if len(reason_text) > 1024:
+                    reason_text = reason_text[:1021] + "..."
+                updated = False
+                for idx, field in enumerate(emb.fields):
+                    if field.name == "Removal Reason":
+                        emb.set_field_at(idx, name="Removal Reason", value=reason_text, inline=False)
+                        updated = True
+                        break
+                if not updated:
+                    emb.add_field(name="Removal Reason", value=reason_text, inline=False)
+                try:
+                    await rev_msg.edit(embed=emb)
+                except Exception as e:
+                    print(f"Could not update review message reason: {e}")
+
+        msg_text = f"Updated reason to:\n> {new_reason}"
+        if interaction.response.is_done():
+            await interaction.followup.send(msg_text, ephemeral=True)
+        else:
+            if interaction.type == discord.InteractionType.component:
+                await interaction.response.edit_message(content=msg_text, view=None)
+            else:
+                await interaction.response.send_message(msg_text, ephemeral=True)
+
+    @commands.Cog.listener()
+    async def on_interaction(self, interaction: discord.Interaction):
+        if interaction.type == discord.InteractionType.component and not interaction.response.is_done():
+            custom_id = interaction.data.get("custom_id", "")
+            if custom_id.startswith("pending_del_"):
+                parts = custom_id.split(":", 1)
+                if len(parts) == 2:
+                    action, pending_id_str = parts
+                    try:
+                        pending_id = int(pending_id_str)
+                    except ValueError:
+                        return
+                    
+                    config = await database.get_guild_config(interaction.guild_id or 0)
+                    if not is_higher_up(interaction.user, config):
+                        await interaction.response.send_message("Only Moderators and above can review pending deletions.", ephemeral=True)
+                        return
+
+                    if await database.is_user_on_training_wheels(interaction.guild_id or 0, interaction.user.id, config=config):
+                        await interaction.response.send_message("Staff on training wheels cannot review pending deletions.", ephemeral=True)
+                        return
+
+                    if action == "pending_del_approve":
+                        await self.approve_pending_deletion(interaction, pending_id)
+                    elif action == "pending_del_edit":
+                        await self.edit_pending_deletion_reason(interaction, pending_id)
+                    elif action == "pending_del_reject":
+                        modal = RejectDeletionModal(pending_id, self)
+                        await interaction.response.send_modal(modal)
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -1020,6 +1822,148 @@ class WarningTracker(commands.Cog):
             choices = [app_commands.Choice(name=r['label'][:100], value=r['id'][:100]) for r in reasons if current.lower() in r['label'].lower() or current.lower() in r['id'].lower()][:25]
             return choices
         return []
+
+    trainingwheel = app_commands.Group(name="trainingwheel", description="Manage Training Wheels for post deletions (Mods+)")
+
+    @trainingwheel.command(name="add", description="Add a staff member to training wheels")
+    @app_commands.describe(user="The staff member to supervise")
+    async def trainingwheel_add(self, interaction: discord.Interaction, user: discord.User):
+        config = await database.get_guild_config(interaction.guild_id or 0)
+        if not is_higher_up(interaction.user, config):
+            await interaction.response.send_message("Only Moderators and above can manage training wheels.", ephemeral=True)
+            return
+
+        if await database.is_user_on_training_wheels(interaction.guild_id or 0, interaction.user.id, config=config):
+            await interaction.response.send_message("Staff on training wheels cannot manage training wheels.", ephemeral=True)
+            return
+
+        await database.set_training_wheel_user(interaction.guild_id or 0, user.id, 1)
+        await interaction.response.send_message(
+            f"Added {user.mention} ({user.id}) to the Training Wheel list. Their post removals will now be queued for review.",
+            ephemeral=True
+        )
+
+    @trainingwheel.command(name="remove", description="Remove a staff member from training wheels")
+    @app_commands.describe(user="The user to remove from training wheels")
+    async def trainingwheel_remove(self, interaction: discord.Interaction, user: discord.User):
+        config = await database.get_guild_config(interaction.guild_id or 0)
+        if not is_higher_up(interaction.user, config):
+            await interaction.response.send_message("Only Moderators and above can manage training wheels.", ephemeral=True)
+            return
+
+        if await database.is_user_on_training_wheels(interaction.guild_id or 0, interaction.user.id, config=config):
+            await interaction.response.send_message("Staff on training wheels cannot manage training wheels.", ephemeral=True)
+            return
+
+        await database.remove_training_wheel_user(interaction.guild_id or 0, user.id)
+        await interaction.response.send_message(
+            f"Removed {user.mention} ({user.id}) from the Training Wheel list.",
+            ephemeral=True
+        )
+
+    @trainingwheel.command(name="list", description="List all users on the training wheel list")
+    async def trainingwheel_list(self, interaction: discord.Interaction):
+        config = await database.get_guild_config(interaction.guild_id or 0)
+        if not is_higher_up(interaction.user, config):
+            await interaction.response.send_message("Only Moderators and above can manage training wheels.", ephemeral=True)
+            return
+
+        if await database.is_user_on_training_wheels(interaction.guild_id or 0, interaction.user.id, config=config):
+            await interaction.response.send_message("Staff on training wheels cannot view the training wheel list.", ephemeral=True)
+            return
+
+        users = await database.get_training_wheel_users(interaction.guild_id or 0)
+        if not users:
+            await interaction.response.send_message("No users are currently on the Training Wheel list.", ephemeral=True)
+            return
+
+        lines = []
+        for u in users:
+            ex_count = len(u.get("exempt_channels", []))
+            ex_note = f" ({ex_count} exempt)" if ex_count > 0 else " (all supervised)"
+            lines.append(f"- <@{u['user_id']}> ({u['user_id']}){ex_note}")
+
+        embed = discord.Embed(
+            title="Training Wheel Users",
+            description="\n".join(lines),
+            color=discord.Color.teal()
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    trainingwheel_channel = app_commands.Group(name="channel", description="Manage channel exemptions for training wheels", parent=trainingwheel)
+
+    @trainingwheel_channel.command(name="exempt", description="Allow direct post removals in a specific channel")
+    @app_commands.describe(user="The staff member on training wheels", channel="The channel or forum to exempt")
+    async def channel_exempt(self, interaction: discord.Interaction, user: discord.User, channel: discord.abc.GuildChannel):
+        config = await database.get_guild_config(interaction.guild_id or 0)
+        if not is_higher_up(interaction.user, config):
+            await interaction.response.send_message("Only Moderators and above can manage training wheels.", ephemeral=True)
+            return
+        if await database.is_user_on_training_wheels(interaction.guild_id or 0, interaction.user.id, config=config):
+            await interaction.response.send_message("Staff on training wheels cannot manage training wheels.", ephemeral=True)
+            return
+
+        target_channel_id = getattr(channel, "parent_id", None) or channel.id
+        exemptions = await database.get_user_training_wheel_exemptions(interaction.guild_id or 0, user.id)
+        cid_str = str(target_channel_id)
+        if cid_str not in exemptions:
+            exemptions.append(cid_str)
+            await database.set_user_training_wheel_exemptions(interaction.guild_id or 0, user.id, exemptions)
+
+        await interaction.response.send_message(
+            f"Exempted <#{target_channel_id}> for {user.mention}. They can now remove posts there directly without review.",
+            ephemeral=True
+        )
+
+    @trainingwheel_channel.command(name="supervise", description="Require review for post removals in a specific channel")
+    @app_commands.describe(user="The staff member on training wheels", channel="The channel or forum to supervise")
+    async def channel_supervise(self, interaction: discord.Interaction, user: discord.User, channel: discord.abc.GuildChannel):
+        config = await database.get_guild_config(interaction.guild_id or 0)
+        if not is_higher_up(interaction.user, config):
+            await interaction.response.send_message("Only Moderators and above can manage training wheels.", ephemeral=True)
+            return
+        if await database.is_user_on_training_wheels(interaction.guild_id or 0, interaction.user.id, config=config):
+            await interaction.response.send_message("Staff on training wheels cannot manage training wheels.", ephemeral=True)
+            return
+
+        target_channel_id = getattr(channel, "parent_id", None) or channel.id
+        exemptions = await database.get_user_training_wheel_exemptions(interaction.guild_id or 0, user.id)
+        cid_str = str(target_channel_id)
+        if cid_str in exemptions:
+            exemptions.remove(cid_str)
+            await database.set_user_training_wheel_exemptions(interaction.guild_id or 0, user.id, exemptions)
+
+        await interaction.response.send_message(
+            f"Removed exemption for <#{target_channel_id}> for {user.mention}. Their removals there now require review.",
+            ephemeral=True
+        )
+
+    @trainingwheel_channel.command(name="list", description="List active channel exemptions for a staff member")
+    @app_commands.describe(user="The staff member to check")
+    async def channel_list(self, interaction: discord.Interaction, user: discord.User):
+        config = await database.get_guild_config(interaction.guild_id or 0)
+        if not is_higher_up(interaction.user, config):
+            await interaction.response.send_message("Only Moderators and above can manage training wheels.", ephemeral=True)
+            return
+        if await database.is_user_on_training_wheels(interaction.guild_id or 0, interaction.user.id, config=config):
+            await interaction.response.send_message("Staff on training wheels cannot view training wheel settings.", ephemeral=True)
+            return
+
+        exemptions = await database.get_user_training_wheel_exemptions(interaction.guild_id or 0, user.id)
+        if not exemptions:
+            await interaction.response.send_message(
+                f"{user.mention} has no channel exemptions. All channels are currently supervised.",
+                ephemeral=True
+            )
+            return
+
+        lines = [f"- <#{cid}> (`{cid}`)" for cid in exemptions]
+        embed = discord.Embed(
+            title=f"Channel Exemptions: {user.display_name}",
+            description="The following channels allow direct post removals without review:\n\n" + "\n".join(lines),
+            color=discord.Color.teal()
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @commands.command(name="carrothelp")
     async def help_command(self, ctx):

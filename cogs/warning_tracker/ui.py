@@ -3,14 +3,33 @@ import database
 from datetime import datetime, timezone
 from .helpers import sanitize_reason, get_channel_mention
 
+def is_higher_up(member: discord.Member, config: dict) -> bool:
+    if member.id == 255174440005009408:
+        return True
+    if member.guild_permissions.administrator:
+        return True
+    tl_id = config.get("team_leader_role_id") or 0
+    mod_id = config.get("moderator_role_id") or 0
+    user_role_ids = {r.id for r in member.roles} if hasattr(member, 'roles') else set()
+    if (tl_id and tl_id in user_role_ids) or (mod_id and mod_id in user_role_ids):
+        return True
+    return False
+
 class ConfirmRemovalView(discord.ui.View):
-    def __init__(self, target_message: discord.Message, reason: str, cog, staff_interaction: discord.Interaction):
+    def __init__(self, target_message: discord.Message, reason: str, cog, staff_interaction: discord.Interaction, on_training_wheels: bool = False):
         super().__init__(timeout=180)
         self.target_message = target_message
         self.reason = reason
         self.cog = cog
         self.staff_interaction = staff_interaction
+        self.on_training_wheels = on_training_wheels
         self.message = None
+        if on_training_wheels:
+            self.confirm_btn.label = "Submit for Review"
+            self.confirm_btn.style = discord.ButtonStyle.primary
+        else:
+            self.confirm_btn.label = "Confirm Removal"
+            self.confirm_btn.style = discord.ButtonStyle.danger
 
     async def on_timeout(self):
         for item in self.children:
@@ -21,12 +40,23 @@ class ConfirmRemovalView(discord.ui.View):
             except Exception:
                 pass
 
-    @discord.ui.button(label="Confirm Removal", style=discord.ButtonStyle.success)
+    @discord.ui.button(label="Confirm Removal", style=discord.ButtonStyle.danger)
     async def confirm_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         for item in self.children:
             item.disabled = True
-        await interaction.response.edit_message(content="Executing removal...", embed=None, view=self)
-        await self.cog.execute_removal(interaction, self.target_message, self.reason, self.target_message.content)
+            
+        guild_id = interaction.guild_id or (self.target_message.guild.id if self.target_message.guild else 0)
+        config = await database.get_guild_config(guild_id)
+        user_role_ids = [r.id for r in interaction.user.roles] if hasattr(interaction.user, 'roles') else []
+        target_channel_id = getattr(self.target_message.channel, "parent_id", None) or self.target_message.channel.id
+        on_wheels = await database.is_user_on_training_wheels(guild_id, interaction.user.id, user_role_ids, config, channel_id=target_channel_id)
+
+        if on_wheels:
+            await interaction.response.edit_message(content="Submitting post for deletion review...", embed=None, view=self)
+            await self.cog.queue_removal(interaction, self.target_message, self.reason, self.target_message.content)
+        else:
+            await interaction.response.edit_message(content="Executing removal...", embed=None, view=self)
+            await self.cog.execute_removal(interaction, self.target_message, self.reason, self.target_message.content)
 
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
     async def cancel_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -63,7 +93,9 @@ class RemovalReasonSelect(discord.ui.Select):
         staff_role_ids = [config.get("team_leader_role_id"), config.get("moderator_role_id"), config.get("trial_moderator_role_id")]
         
         is_admin = interaction.user.guild_permissions.administrator if interaction.guild else False
-        if interaction.user.id != 255174440005009408 and not is_admin and not any(role.id in staff_role_ids for role in interaction.user.roles):
+        user_role_ids = [r.id for r in interaction.user.roles] if hasattr(interaction.user, 'roles') else []
+        on_wheels = await database.is_user_on_training_wheels(interaction.guild_id or 0, interaction.user.id, user_role_ids, config)
+        if interaction.user.id != 255174440005009408 and not is_admin and not on_wheels and not any(role.id in staff_role_ids for role in interaction.user.roles):
             await interaction.response.send_message("You do not have the required staff role to perform this action.", ephemeral=True)
             return
 
@@ -85,17 +117,31 @@ class RemovalReasonSelect(discord.ui.Select):
                 formatted_list = "\n".join([f"- {reasons_map[v]}" for v in self.values if v in reasons_map])
                 reason = f"Your post has been removed from {chan_mention} due to:\n{formatted_list}"
 
-            preview_desc = (
-                f"Are you sure you want to remove the post by {self.target_message.author.mention}?\n\n"
-                f"**Preview of notice message to be sent:**\n"
-                f"{self.target_message.author.mention} {reason}"
-            )
+            guild_id = interaction.guild_id or (self.target_message.guild.id if self.target_message.guild else 0)
+            user_role_ids = [r.id for r in interaction.user.roles] if hasattr(interaction.user, 'roles') else []
+            target_channel_id = getattr(self.target_message.channel, "parent_id", None) or self.target_message.channel.id
+            on_wheels = await database.is_user_on_training_wheels(guild_id, interaction.user.id, user_role_ids, config, channel_id=target_channel_id)
+
+            if on_wheels:
+                preview_title = "[Training Wheel] Queue Post for Deletion"
+                preview_desc = (
+                    f"You are on Training Wheels. This removal will be sent to the review channel for moderator approval before deletion.\n\n"
+                    f"**Preview of notice message to be sent upon approval:**\n"
+                    f"{self.target_message.author.mention} {reason}"
+                )
+            else:
+                preview_title = "Confirm Post Removal"
+                preview_desc = (
+                    f"Are you sure you want to remove the post by {self.target_message.author.mention}?\n\n"
+                    f"**Preview of notice message to be sent:**\n"
+                    f"{self.target_message.author.mention} {reason}"
+                )
             confirm_embed = discord.Embed(
-                title="Confirm Post Removal",
+                title=preview_title,
                 description=preview_desc,
                 color=discord.Color.yellow()
             )
-            confirm_view = ConfirmRemovalView(self.target_message, reason, self.cog, interaction)
+            confirm_view = ConfirmRemovalView(self.target_message, reason, self.cog, interaction, on_training_wheels=on_wheels)
             await interaction.response.edit_message(content=None, embed=confirm_embed, view=confirm_view)
             try:
                 confirm_view.message = await interaction.original_response()
@@ -128,22 +174,127 @@ class CustomRemovalReasonModal(discord.ui.Modal, title="Reason for removal"):
         else:
             reason = f"Your post has been removed from {chan_mention} due to {custom_reason_sanitized}"
 
-        preview_desc = (
-            f"Are you sure you want to remove the post by {self.target_message.author.mention}?\n\n"
-            f"**Preview of notice message to be sent:**\n"
-            f"{self.target_message.author.mention} {reason}"
-        )
+        guild_id = interaction.guild_id or (self.target_message.guild.id if self.target_message.guild else 0)
+        config = await database.get_guild_config(guild_id)
+        user_role_ids = [r.id for r in interaction.user.roles] if hasattr(interaction.user, 'roles') else []
+        target_channel_id = getattr(self.target_message.channel, "parent_id", None) or self.target_message.channel.id
+        on_wheels = await database.is_user_on_training_wheels(guild_id, interaction.user.id, user_role_ids, config, channel_id=target_channel_id)
+
+        if on_wheels:
+            preview_title = "[Training Wheel] Queue Post for Deletion"
+            preview_desc = (
+                f"You are on Training Wheels. This removal will be sent to the review channel for moderator approval before deletion.\n\n"
+                f"**Preview of notice message to be sent upon approval:**\n"
+                f"{self.target_message.author.mention} {reason}"
+            )
+        else:
+            preview_title = "Confirm Post Removal"
+            preview_desc = (
+                f"Are you sure you want to remove the post by {self.target_message.author.mention}?\n\n"
+                f"**Preview of notice message to be sent:**\n"
+                f"{self.target_message.author.mention} {reason}"
+            )
         confirm_embed = discord.Embed(
-            title="Confirm Post Removal",
+            title=preview_title,
             description=preview_desc,
             color=discord.Color.yellow()
         )
-        confirm_view = ConfirmRemovalView(self.target_message, reason, self.cog, interaction)
+        confirm_view = ConfirmRemovalView(self.target_message, reason, self.cog, interaction, on_training_wheels=on_wheels)
         await interaction.response.send_message(embed=confirm_embed, view=confirm_view, ephemeral=True)
         try:
             confirm_view.message = await interaction.original_response()
         except Exception:
             pass
+
+class PendingDeletionReviewView(discord.ui.View):
+    def __init__(self, pending_id: int, cog=None):
+        super().__init__(timeout=None)
+        self.pending_id = pending_id
+        self.cog = cog
+        
+        self.approve_btn.custom_id = f"pending_del_approve:{pending_id}"
+        self.edit_btn.custom_id = f"pending_del_edit:{pending_id}"
+        self.reject_btn.custom_id = f"pending_del_reject:{pending_id}"
+
+    # Actions are handled centrally in WarningTracker.on_interaction to prevent race conditions
+    @discord.ui.button(label="Approve Deletion", style=discord.ButtonStyle.success)
+    async def approve_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        pass
+
+    @discord.ui.button(label="Edit Reason", style=discord.ButtonStyle.primary)
+    async def edit_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        pass
+
+    @discord.ui.button(label="Reject", style=discord.ButtonStyle.secondary)
+    async def reject_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        pass
+
+class RejectDeletionModal(discord.ui.Modal, title="Reject Post Deletion"):
+    def __init__(self, pending_id: int, cog):
+        super().__init__()
+        self.pending_id = pending_id
+        self.cog = cog
+
+    reason_input = discord.ui.TextInput(
+        label="Reason for Rejection",
+        placeholder="Why is this post deletion being rejected?",
+        style=discord.TextStyle.paragraph,
+        required=False,
+        max_length=500
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        reject_reason = self.reason_input.value.strip() if self.reason_input.value else "No reason provided."
+        if self.cog:
+            await self.cog.reject_pending_deletion(interaction, self.pending_id, reject_reason=reject_reason)
+
+class EditPendingReasonSelect(discord.ui.Select):
+    def __init__(self, pending_id: int, cog, reasons_db: list, current_channel_mention: str):
+        self.pending_id = pending_id
+        self.cog = cog
+        self.reasons_db = reasons_db
+        self.current_channel_mention = current_channel_mention
+        options = [discord.SelectOption(label=r['label'][:100], value=r['id'][:100]) for r in reasons_db]
+        options.append(discord.SelectOption(label="Others...", value="others"))
+        super().__init__(placeholder="Choose a new removal reason...", options=options[:25], min_values=1, max_values=1)
+
+    async def callback(self, interaction: discord.Interaction):
+        reasons_map = {r['id']: r['text'] for r in self.reasons_db}
+        if self.values[0] == "others":
+            modal = EditPendingCustomReasonModal(self.pending_id, self.cog, self.current_channel_mention)
+            await interaction.response.send_modal(modal)
+        else:
+            selected_text = reasons_map[self.values[0]]
+            if selected_text.startswith("as "):
+                new_reason = f"Your post has been removed from {self.current_channel_mention} {selected_text}"
+            else:
+                new_reason = f"Your post has been removed from {self.current_channel_mention} due to {selected_text}"
+            await self.cog.apply_edited_reason(interaction, self.pending_id, new_reason)
+
+class EditPendingReasonView(discord.ui.View):
+    def __init__(self, select_item):
+        super().__init__(timeout=120)
+        self.add_item(select_item)
+
+class EditPendingCustomReasonModal(discord.ui.Modal, title="Edit Removal Reason"):
+    def __init__(self, pending_id: int, cog, channel_mention: str):
+        super().__init__()
+        self.pending_id = pending_id
+        self.cog = cog
+        self.channel_mention = channel_mention
+
+    custom_reason = discord.ui.TextInput(
+        label="New Reason",
+        placeholder="Enter the updated reason for removal...",
+        style=discord.TextStyle.long,
+        required=True,
+        max_length=500
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        sanitized = sanitize_reason(self.custom_reason.value)
+        new_reason = f"Your post has been removed from {self.channel_mention} due to {sanitized}"
+        await self.cog.apply_edited_reason(interaction, self.pending_id, new_reason)
 
 class VerbalPreviewView(discord.ui.View):
     def __init__(self, action: str, reason_id: str, label: str, text: str, interaction: discord.Interaction):
@@ -409,6 +560,7 @@ class HelpPaginationView(discord.ui.View):
                 "title": "🥕 Slash Commands (/)",
                 "color": discord.Color.blurple(),
                 "fields": [
+                    ("/trainingwheel <add|remove|list>", "Manage Training Wheels for post deletions (Mods+).", False),
                     ("/verbal <action> [reason]", "Manage dynamic verbal warning reasons (Admins/TLs only).", False),
                     ("/addvac <target> [reason]", "Puts a staff member on vacation (Admins/TLs only).", False),
                     ("/removevac <target>", "Restores staff roles and returns a user from vacation (Admins/TLs only).", False),

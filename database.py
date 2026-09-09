@@ -172,6 +172,64 @@ async def init_db():
         except aiosqlite.OperationalError:
             pass
 
+        try:
+            await db.execute('ALTER TABLE guild_configs ADD COLUMN deletion_review_channel_id INTEGER')
+            await db.commit()
+        except aiosqlite.OperationalError:
+            pass
+
+        try:
+            await db.execute('ALTER TABLE guild_configs ADD COLUMN training_wheel_user_ids TEXT')
+            await db.commit()
+        except aiosqlite.OperationalError:
+            pass
+
+        try:
+            await db.execute('ALTER TABLE guild_configs ADD COLUMN training_wheel_channel_map TEXT')
+            await db.commit()
+        except aiosqlite.OperationalError:
+            pass
+
+        # Drop legacy training_wheels table if it exists
+        try:
+            await db.execute('DROP TABLE IF EXISTS training_wheels')
+            await db.commit()
+        except aiosqlite.OperationalError:
+            pass
+
+        # Create pending_post_deletions table
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS pending_post_deletions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id INTEGER NOT NULL,
+                channel_id INTEGER NOT NULL,
+                message_id INTEGER NOT NULL,
+                author_id INTEGER NOT NULL,
+                staff_id INTEGER NOT NULL,
+                reason TEXT NOT NULL,
+                original_content TEXT,
+                post_created_at TIMESTAMP,
+                marked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                attachments TEXT,
+                review_message_id INTEGER,
+                status TEXT DEFAULT 'pending',
+                reject_reason TEXT
+            )
+        ''')
+        await db.commit()
+
+        try:
+            await db.execute('ALTER TABLE pending_post_deletions ADD COLUMN reject_reason TEXT')
+            await db.commit()
+        except aiosqlite.OperationalError:
+            pass
+
+        try:
+            await db.execute('ALTER TABLE pending_post_deletions ADD COLUMN original_reason TEXT')
+            await db.commit()
+        except aiosqlite.OperationalError:
+            pass
+
         # Create vacations table
         await db.execute('''
             CREATE TABLE IF NOT EXISTS vacations (
@@ -302,6 +360,7 @@ async def init_db():
                 review_channel_id INTEGER,
                 approved_channel_id INTEGER,
                 approval_log_channel_id INTEGER,
+                deletion_review_channel_id INTEGER,
                 active_limit INTEGER DEFAULT 2,
                 reminder_threshold INTEGER DEFAULT 7,
                 accepted_currencies TEXT DEFAULT 'USD,EUR,GBP',
@@ -311,7 +370,9 @@ async def init_db():
                 vacation_role_id_2 INTEGER,
                 vacation_secondary_guild_id INTEGER,
                 vacation_strip_roles_1 TEXT,
-                vacation_strip_roles_2 TEXT
+                vacation_strip_roles_2 TEXT,
+                training_wheel_user_ids TEXT,
+                training_wheel_channel_map TEXT
             )
         ''')
         
@@ -434,6 +495,7 @@ async def get_guild_config(guild_id: int):
                 "guild_id", "staff_notice_channel_id", "staff_commands_channel_id", "staff_log_channel_id",
                 "team_leader_role_id", "moderator_role_id", "trial_moderator_role_id",
                 "submit_channel_id", "review_channel_id", "approved_channel_id", "approval_log_channel_id",
+                "deletion_review_channel_id",
                 "dm_on_warning", "vacation_role_id", "vacation_role_id_2", "vacation_secondary_guild_id"
             ]
             for k in keys_to_cast:
@@ -457,6 +519,7 @@ async def get_guild_config(guild_id: int):
             "review_channel_id": 0,
             "approved_channel_id": 0,
             "approval_log_channel_id": 0,
+            "deletion_review_channel_id": 0,
             "active_limit": 2,
             "reminder_threshold": 14,
             "accepted_currencies": "USD, EUR, GBP, CAD, AUD, \\$|£|€",
@@ -467,7 +530,9 @@ async def get_guild_config(guild_id: int):
             "vacation_role_id_2": 0,
             "vacation_secondary_guild_id": 0,
             "vacation_strip_roles_1": "",
-            "vacation_strip_roles_2": ""
+            "vacation_strip_roles_2": "",
+            "training_wheel_user_ids": "",
+            "training_wheel_channel_map": "{}"
         }
 
 async def migrate_env_to_db(guild_id: int):
@@ -1162,6 +1227,21 @@ async def cleanup_attachments():
                             active_filenames.add(stored_name)
             except Exception:
                 pass
+
+        # Also preserve attachments belonging to pending/processing post deletions
+        cursor_pending = await db.execute("SELECT attachments FROM pending_post_deletions WHERE attachments IS NOT NULL AND status IN ('pending', 'processing')")
+        pending_rows = await cursor_pending.fetchall()
+        for row in pending_rows:
+            attachments_str = row['attachments']
+            try:
+                attachments_list = json.loads(attachments_str)
+                if isinstance(attachments_list, list):
+                    for att in attachments_list:
+                        stored_name = att.get("stored_filename")
+                        if stored_name:
+                            active_filenames.add(stored_name)
+            except Exception:
+                pass
                 
         files_in_dir = os.listdir(ATTACHMENTS_DIR)
         orphaned_count = 0
@@ -1176,3 +1256,152 @@ async def cleanup_attachments():
                         print(f"Error removing orphaned file {filename}: {e}")
                         
         print(f"Orphan cleanup finished. Deleted {orphaned_count} orphaned attachment files.")
+
+# --- Training Wheels & Pending Post Deletion Methods ---
+
+async def get_training_wheel_users(guild_id: int) -> list:
+    config = await get_guild_config(guild_id)
+    raw = config.get("training_wheel_user_ids") or ""
+    raw_map = config.get("training_wheel_channel_map") or "{}"
+    try:
+        data = json.loads(raw_map) if isinstance(raw_map, str) else (raw_map or {})
+    except Exception:
+        data = {}
+    uids = [u.strip() for u in str(raw).split(",") if u.strip().isdigit()]
+    return [
+        {
+            "user_id": int(uid),
+            "enabled": 1,
+            "exempt_channels": [str(cid) for cid in data.get(str(uid), [])]
+        }
+        for uid in uids
+    ]
+
+async def set_training_wheel_user(guild_id: int, user_id: int, enabled: int = 1):
+    config = await get_guild_config(guild_id)
+    raw = config.get("training_wheel_user_ids") or ""
+    current_uids = [u.strip() for u in str(raw).split(",") if u.strip().isdigit()]
+    uid_str = str(user_id)
+    if enabled:
+        if uid_str not in current_uids:
+            current_uids.append(uid_str)
+    else:
+        current_uids = [u for u in current_uids if u != uid_str]
+
+    new_str = ",".join(current_uids)
+    async with aiosqlite.connect(DB_NAME) as db:
+        cursor = await db.execute("SELECT 1 FROM guild_configs WHERE guild_id = ?", (guild_id,))
+        if await cursor.fetchone():
+            await db.execute("UPDATE guild_configs SET training_wheel_user_ids = ? WHERE guild_id = ?", (new_str, guild_id))
+        else:
+            await db.execute("INSERT INTO guild_configs (guild_id, training_wheel_user_ids) VALUES (?, ?)", (guild_id, new_str))
+        await db.commit()
+
+async def remove_training_wheel_user(guild_id: int, user_id: int):
+    await set_training_wheel_user(guild_id, user_id, enabled=0)
+    config = await get_guild_config(guild_id)
+    raw_map = config.get("training_wheel_channel_map") or "{}"
+    try:
+        data = json.loads(raw_map) if isinstance(raw_map, str) else (raw_map or {})
+        uid_str = str(user_id)
+        if uid_str in data:
+            del data[uid_str]
+            new_json = json.dumps(data)
+            async with aiosqlite.connect(DB_NAME) as db:
+                await db.execute("UPDATE guild_configs SET training_wheel_channel_map = ? WHERE guild_id = ?", (new_json, guild_id))
+                await db.commit()
+    except Exception:
+        pass
+
+async def get_user_training_wheel_exemptions(guild_id: int, user_id: int) -> list:
+    config = await get_guild_config(guild_id)
+    raw_map = config.get("training_wheel_channel_map") or "{}"
+    try:
+        data = json.loads(raw_map) if isinstance(raw_map, str) else (raw_map or {})
+    except Exception:
+        data = {}
+    return [str(cid) for cid in data.get(str(user_id), [])]
+
+async def set_user_training_wheel_exemptions(guild_id: int, user_id: int, exempt_channel_ids: list):
+    config = await get_guild_config(guild_id)
+    raw_map = config.get("training_wheel_channel_map") or "{}"
+    try:
+        data = json.loads(raw_map) if isinstance(raw_map, str) else (raw_map or {})
+    except Exception:
+        data = {}
+    clean_cids = [str(cid).strip() for cid in exempt_channel_ids if str(cid).strip()]
+    data[str(user_id)] = clean_cids
+    new_json = json.dumps(data)
+    async with aiosqlite.connect(DB_NAME) as db:
+        cursor = await db.execute("SELECT 1 FROM guild_configs WHERE guild_id = ?", (guild_id,))
+        if await cursor.fetchone():
+            await db.execute("UPDATE guild_configs SET training_wheel_channel_map = ? WHERE guild_id = ?", (new_json, guild_id))
+        else:
+            await db.execute("INSERT INTO guild_configs (guild_id, training_wheel_channel_map) VALUES (?, ?)", (guild_id, new_json))
+        await db.commit()
+
+async def is_user_on_training_wheels(guild_id: int, user_id: int, user_roles: list = None, config: dict = None, channel_id: int = None) -> bool:
+    """
+    Checks if a user is on training wheels.
+    Returns True only if user_id is in guild_configs.training_wheel_user_ids.
+    If channel_id is provided, returns False if that channel is in user's exemptions.
+    """
+    if config is None:
+        config = await get_guild_config(guild_id)
+    raw = config.get("training_wheel_user_ids") or ""
+    current_uids = {u.strip() for u in str(raw).split(",") if u.strip()}
+    uid_str = str(user_id)
+    if uid_str not in current_uids:
+        return False
+    if channel_id is None:
+        return True
+    raw_map = config.get("training_wheel_channel_map") or "{}"
+    try:
+        data = json.loads(raw_map) if isinstance(raw_map, str) else (raw_map or {})
+    except Exception:
+        data = {}
+    exempt_channels = {str(cid) for cid in data.get(uid_str, [])}
+    return str(channel_id) not in exempt_channels
+
+async def add_pending_post_deletion(guild_id: int, channel_id: int, message_id: int, author_id: int, staff_id: int, reason: str, original_content: str, post_created_at: str, marked_at: str, attachments: str = None) -> int:
+    async with aiosqlite.connect(DB_NAME) as db:
+        cursor = await db.execute('''
+            INSERT INTO pending_post_deletions (
+                guild_id, channel_id, message_id, author_id, staff_id,
+                reason, original_reason, original_content, post_created_at, marked_at, attachments, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+        ''', (guild_id, channel_id, message_id, author_id, staff_id, reason, reason, original_content, post_created_at, marked_at, attachments))
+        await db.commit()
+        return cursor.lastrowid
+
+async def get_pending_post_deletion(pending_id: int) -> dict:
+    async with aiosqlite.connect(DB_NAME) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT * FROM pending_post_deletions WHERE id = ?", (pending_id,))
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+async def update_pending_post_deletion_review_msg(pending_id: int, review_message_id: int):
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute("UPDATE pending_post_deletions SET review_message_id = ? WHERE id = ?", (review_message_id, pending_id))
+        await db.commit()
+
+async def update_pending_post_deletion_reason(pending_id: int, new_reason: str):
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute("UPDATE pending_post_deletions SET reason = ? WHERE id = ?", (new_reason, pending_id))
+        await db.commit()
+
+async def update_pending_post_deletion_status(pending_id: int, status: str, reject_reason: str = None):
+    async with aiosqlite.connect(DB_NAME) as db:
+        if reject_reason is not None:
+            await db.execute("UPDATE pending_post_deletions SET status = ?, reject_reason = ? WHERE id = ?", (status, reject_reason, pending_id))
+        else:
+            await db.execute("UPDATE pending_post_deletions SET status = ? WHERE id = ?", (status, pending_id))
+        await db.commit()
+
+async def claim_pending_post_deletion(pending_id: int) -> bool:
+    """Atomically marks a pending deletion as 'processing' so multiple reviewers cannot action it at the same time."""
+    async with aiosqlite.connect(DB_NAME) as db:
+        cursor = await db.execute("UPDATE pending_post_deletions SET status = 'processing' WHERE id = ? AND status = 'pending'", (pending_id,))
+        await db.commit()
+        return cursor.rowcount > 0

@@ -4,6 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import List, Optional
 import database
+import asyncio
 import os
 import time
 import aiohttp
@@ -739,6 +740,7 @@ class GuildConfig(BaseModel):
     review_channel_id: Optional[str] = None
     approved_channel_id: Optional[str] = None
     approval_log_channel_id: Optional[str] = None
+    deletion_review_channel_id: Optional[str] = None
     active_limit: int = 2
     reminder_threshold: int = 14
     accepted_currencies: str = "USD, EUR, GBP, CAD, AUD, \\$|£|€"
@@ -750,6 +752,8 @@ class GuildConfig(BaseModel):
     vacation_secondary_guild_id: Optional[str] = None
     vacation_strip_roles_1: Optional[str] = None
     vacation_strip_roles_2: Optional[str] = None
+    training_wheel_user_ids: Optional[str] = None
+    training_wheel_channel_map: Optional[str] = None
 
 
 @app.get("/api/guilds/{guild_id}/analytics")
@@ -893,6 +897,8 @@ async def save_config(guild_id: int, config: GuildConfig, access_level: str = De
 
         # Get only explicitly provided fields
         provided_data = config.model_dump(exclude_unset=True)
+        provided_data.pop("training_wheel_user_ids", None)
+        provided_data.pop("training_wheel_channel_map", None)
         
         # Convert dm_on_warning bool to int if provided
         if "dm_on_warning" in provided_data and provided_data["dm_on_warning"] is not None:
@@ -941,6 +947,129 @@ async def save_warning_reasons(guild_id: int, data: VerbalReasonsUpdate, access_
             ''', (r.id, r.label, r.text, guild_id))
             
         await db.commit()
+    return {"status": "success"}
+
+class TrainingWheelUserAdd(BaseModel):
+    user_id: str
+    enabled: Optional[bool] = True
+
+class TrainingWheelUserUpdate(BaseModel):
+    enabled: bool
+
+@app.get("/api/guilds/{guild_id}/channels")
+async def get_guild_channels(guild_id: int, access_level: str = Depends(requires_view_access)):
+    if not bot_client:
+        return {"channels": []}
+    
+    if guild_id == 0:
+        async with database.aiosqlite.connect(database.DB_NAME) as db:
+            cursor = await db.execute("SELECT guild_id FROM guild_configs LIMIT 1")
+            row = await cursor.fetchone()
+            actual_guild_id = row[0] if row else 0
+    else:
+        actual_guild_id = guild_id
+
+    guild = bot_client.get_guild(actual_guild_id)
+    if not guild:
+        try:
+            guild = await bot_client.fetch_guild(actual_guild_id)
+        except Exception:
+            return {"channels": []}
+
+    raw_channels = list(guild.text_channels)
+    if hasattr(guild, "forums"):
+        raw_channels.extend(guild.forums)
+
+    if not raw_channels:
+        try:
+            fetched_chans = await guild.fetch_channels()
+            raw_channels = [c for c in fetched_chans if isinstance(c, (discord.TextChannel, discord.ForumChannel))]
+        except Exception:
+            pass
+
+    channels = []
+    for c in raw_channels:
+        cat_name = c.category.name if c.category else "Uncategorized"
+        cat_pos = c.category.position if c.category else -1
+        channels.append({
+            "id": str(c.id),
+            "name": f"#{c.name}",
+            "type": "forum" if isinstance(c, discord.ForumChannel) else "text",
+            "category": cat_name,
+            "category_position": cat_pos,
+            "position": c.position
+        })
+
+    channels.sort(key=lambda x: (x["category_position"], x["category"].lower(), x["position"]))
+    return {"channels": channels}
+
+class TrainingWheelChannelsUpdate(BaseModel):
+    exempt_channels: list[str]
+
+@app.get("/api/guilds/{guild_id}/training-wheels")
+async def get_training_wheels(guild_id: int, access_level: str = Depends(requires_view_access)):
+    raw_users = await database.get_training_wheel_users(guild_id)
+    if not raw_users:
+        return {"users": []}
+    user_infos = await asyncio.gather(*[get_cached_user(u["user_id"]) for u in raw_users])
+    result = [
+        {
+            "user_id": str(u["user_id"]),
+            "enabled": bool(u["enabled"]),
+            "exempt_channels": u.get("exempt_channels", []),
+            "name": info["name"] if info else f"User {u['user_id']}",
+            "avatar": info["avatar"] if info else None
+        }
+        for u, info in zip(raw_users, user_infos)
+    ]
+    return {"users": result}
+
+@app.post("/api/guilds/{guild_id}/training-wheels")
+async def add_training_wheel(guild_id: int, data: TrainingWheelUserAdd, access_level: str = Depends(requires_admin_access)):
+    try:
+        uid = int(data.user_id.strip())
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid User ID format")
+
+    await database.set_training_wheel_user(guild_id, uid, 1 if data.enabled else 0)
+    user_info = await get_cached_user(uid)
+    exemptions = await database.get_user_training_wheel_exemptions(guild_id, uid)
+    return {
+        "status": "success",
+        "user": {
+            "user_id": str(uid),
+            "enabled": bool(data.enabled),
+            "exempt_channels": exemptions,
+            "name": user_info["name"] if user_info else f"User {uid}",
+            "avatar": user_info["avatar"] if user_info else None
+        }
+    }
+
+@app.put("/api/guilds/{guild_id}/training-wheels/{user_id}/channels")
+async def update_training_wheel_channels(guild_id: int, user_id: str, data: TrainingWheelChannelsUpdate, access_level: str = Depends(requires_admin_access)):
+    try:
+        uid = int(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid User ID")
+    await database.set_user_training_wheel_exemptions(guild_id, uid, data.exempt_channels)
+    return {"status": "success", "exempt_channels": data.exempt_channels}
+
+@app.patch("/api/guilds/{guild_id}/training-wheels/{user_id}")
+async def update_training_wheel(guild_id: int, user_id: str, data: TrainingWheelUserUpdate, access_level: str = Depends(requires_admin_access)):
+    try:
+        uid = int(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid User ID")
+    await database.set_training_wheel_user(guild_id, uid, 1 if data.enabled else 0)
+    return {"status": "success"}
+
+@app.delete("/api/guilds/{guild_id}/training-wheels/{user_id}")
+async def delete_training_wheel(guild_id: int, user_id: str, access_level: str = Depends(requires_admin_access)):
+    try:
+        uid = int(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid User ID")
+    await database.remove_training_wheel_user(guild_id, uid)
     return {"status": "success"}
 
 @app.post("/api/guilds/{guild_id}/paid-requests/purge")
@@ -1392,7 +1521,7 @@ async def get_builder_message(
         config = await database.get_guild_config(guild_id)
         config_cids = []
         if config:
-            for k in ["staff_notice_channel_id", "staff_commands_channel_id", "staff_log_channel_id", "submit_channel_id", "review_channel_id", "approved_channel_id", "approval_log_channel_id"]:
+            for k in ["staff_notice_channel_id", "staff_commands_channel_id", "staff_log_channel_id", "submit_channel_id", "review_channel_id", "approved_channel_id", "approval_log_channel_id", "deletion_review_channel_id"]:
                 val = config.get(k)
                 if val:
                     config_cids.append(int(val))
