@@ -471,7 +471,8 @@ class WarningTracker(commands.Cog):
                 await a.save(file_path)
                 saved_attachments.append({
                     "filename": a.filename,
-                    "stored_filename": unique_filename
+                    "stored_filename": unique_filename,
+                    "url": getattr(a, "url", None)
                 })
             except Exception as e:
                 print(f"Failed to download/save attachment {a.filename}: {e}")
@@ -599,6 +600,8 @@ class WarningTracker(commands.Cog):
         else:
             review_msg = await review_channel.send(embed=review_embed, view=review_view)
         
+        if preview_msg:
+            await database.update_pending_post_deletion_preview_msg(pending_id, preview_msg.id)
         await database.update_pending_post_deletion_review_msg(pending_id, review_msg.id)
 
         await interaction.followup.send(
@@ -629,6 +632,41 @@ class WarningTracker(commands.Cog):
                     pass
         return None
 
+    async def _cleanup_preview_message(self, interaction: discord.Interaction, pending: dict, rev_msg: discord.Message = None):
+        preview_msg_id = pending.get("preview_message_id")
+        if not preview_msg_id and rev_msg and getattr(rev_msg, "reference", None):
+            preview_msg_id = rev_msg.reference.message_id
+
+        if not preview_msg_id:
+            return
+
+        channel = None
+        if rev_msg and hasattr(rev_msg, "channel") and rev_msg.channel:
+            channel = rev_msg.channel
+        elif interaction.channel:
+            channel = interaction.channel
+        else:
+            config = await database.get_guild_config(interaction.guild_id or (rev_msg.guild.id if rev_msg and rev_msg.guild else 0))
+            review_channel_id = config.get("deletion_review_channel_id") or config.get("staff_commands_channel_id") or 0
+            if review_channel_id:
+                channel = self.bot.get_channel(review_channel_id)
+                if not channel:
+                    try:
+                        channel = await self.bot.fetch_channel(review_channel_id)
+                    except Exception:
+                        channel = None
+
+        if not channel:
+            return
+
+        try:
+            preview_msg = await channel.fetch_message(preview_msg_id)
+            await preview_msg.delete()
+        except discord.NotFound:
+            pass
+        except Exception as e:
+            print(f"Failed to delete preview message {preview_msg_id}: {e}")
+
     async def cancel_pending_deletion(self, interaction: discord.Interaction, pending: dict, reason: str = "Original post was already deleted from chat."):
         pending_id = pending["id"]
         # Clean up temporary attachments
@@ -641,6 +679,7 @@ class WarningTracker(commands.Cog):
         # Update review card in review channel
         config = await database.get_guild_config(interaction.guild_id or 0)
         review_msg_id = pending.get("review_message_id")
+        rev_msg = None
         if review_msg_id:
             rev_msg = await self._get_review_message(interaction, review_msg_id, config)
             if rev_msg and rev_msg.embeds:
@@ -654,6 +693,8 @@ class WarningTracker(commands.Cog):
                     await rev_msg.edit(embed=emb, view=None)
                 except Exception as e:
                     print(f"Could not update review message: {e}")
+
+        await self._cleanup_preview_message(interaction, pending, rev_msg)
 
         await interaction.followup.send(
             f"The request has been cancelled: {reason} No warning was issued.",
@@ -717,8 +758,14 @@ class WarningTracker(commands.Cog):
             return
 
         target_message = None
+        target_attachments = []
         try:
             target_message = await channel.fetch_message(message_id)
+            target_attachments = list(target_message.attachments)
+            if hasattr(target_message, "message_snapshots") and target_message.message_snapshots:
+                for snapshot in target_message.message_snapshots:
+                    if hasattr(snapshot, "attachments") and snapshot.attachments:
+                        target_attachments.extend(snapshot.attachments)
             await target_message.delete()
         except discord.NotFound:
             await self.cancel_pending_deletion(interaction, pending, reason="Original post was already deleted from chat.")
@@ -860,15 +907,35 @@ class WarningTracker(commands.Cog):
                 except Exception:
                     pass
 
-            if saved_attachments:
+            # Resolve attachment URLs
+            attachment_urls = []
+            if target_attachments:
+                attachment_urls = [a.url for a in target_attachments if hasattr(a, "url") and a.url]
+            elif saved_attachments:
+                attachment_urls = [a["url"] for a in saved_attachments if a.get("url")]
+
+            if attachment_urls:
                 log_embed.add_field(
                     name="Original Post Content",
                     value=f"```\n{content_snippet}\n```",
                     inline=False
                 )
-                att_text = ", ".join([f"`{a['filename']}`" for a in saved_attachments])
-                if len(att_text) > 1000:
-                    att_text = att_text[:997] + "..."
+                attachments_list = "\n".join(attachment_urls)
+                allowed_attachments_len = 1024 - 2 - len(log_link) - 3
+                if len(attachments_list) > allowed_attachments_len:
+                    attachments_list = attachments_list[:allowed_attachments_len] + "..."
+                attachments_list += f"\n\n{log_link}"
+                log_embed.add_field(name="Attachments", value=attachments_list, inline=False)
+            elif saved_attachments:
+                log_embed.add_field(
+                    name="Original Post Content",
+                    value=f"```\n{content_snippet}\n```",
+                    inline=False
+                )
+                att_text = "\n".join([f"`{a['filename']}`" for a in saved_attachments])
+                allowed_attachments_len = 1024 - 2 - len(log_link) - 3
+                if len(att_text) > allowed_attachments_len:
+                    att_text = att_text[:allowed_attachments_len] + "..."
                 att_text += f"\n\n{log_link}"
                 log_embed.add_field(name="Attachments", value=att_text, inline=False)
             else:
@@ -992,9 +1059,11 @@ class WarningTracker(commands.Cog):
                 except Exception as e:
                     print(f"Could not update review message: {e}")
 
+        await self._cleanup_preview_message(interaction, pending, rev_msg)
+
         # 8. Ping the staff member who submitted the deletion request
         staff_id = pending.get("staff_id")
-        if staff_id and staff_id != interaction.user.id:
+        if staff_id:
             if is_corrected:
                 app_embed = discord.Embed(
                     title="Post Deletion Approved (Reason Corrected)",
@@ -1102,6 +1171,8 @@ class WarningTracker(commands.Cog):
                     await rev_msg.edit(embed=emb, view=None)
                 except Exception as e:
                     print(f"Could not update review message: {e}")
+
+        await self._cleanup_preview_message(interaction, pending, rev_msg)
 
         # 4. Ping the staff member who submitted the deletion request (if not self)
         if staff_id and not is_self:

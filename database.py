@@ -230,6 +230,12 @@ async def init_db():
         except aiosqlite.OperationalError:
             pass
 
+        try:
+            await db.execute('ALTER TABLE pending_post_deletions ADD COLUMN preview_message_id INTEGER')
+            await db.commit()
+        except aiosqlite.OperationalError:
+            pass
+
         # Create vacations table
         await db.execute('''
             CREATE TABLE IF NOT EXISTS vacations (
@@ -1384,6 +1390,11 @@ async def get_pending_post_deletion(pending_id: int) -> dict:
 async def update_pending_post_deletion_review_msg(pending_id: int, review_message_id: int):
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute("UPDATE pending_post_deletions SET review_message_id = ? WHERE id = ?", (review_message_id, pending_id))
+        await db.commit()
+
+async def update_pending_post_deletion_preview_msg(pending_id: int, preview_message_id: int):
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute("UPDATE pending_post_deletions SET preview_message_id = ? WHERE id = ?", (preview_message_id, pending_id))
         await db.commit()
 
 async def update_pending_post_deletion_reason(pending_id: int, new_reason: str):
