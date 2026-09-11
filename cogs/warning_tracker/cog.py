@@ -1065,22 +1065,24 @@ class WarningTracker(commands.Cog):
         staff_id = pending.get("staff_id")
         if staff_id:
             if is_corrected:
+                orig_reason = pending.get("original_reason") or "None"
+                if len(orig_reason) > 500:
+                    orig_reason = orig_reason[:497] + "..."
+                corr_reason = reason if len(reason) <= 500 else reason[:497] + "..."
                 app_embed = discord.Embed(
-                    title="Post Deletion Approved (Reason Corrected)",
-                    description=f"Your post deletion request was approved by {interaction.user.mention} with a corrected reason.",
+                    description=(
+                        f"**Status: Approved (Reason Corrected)**\n"
+                        f"Your post deletion request was approved by {interaction.user.mention} with a corrected reason.\n\n"
+                        f"**Submitted Reason:** {orig_reason}\n"
+                        f"**Corrected Reason:** {corr_reason}"
+                    ),
                     color=discord.Color.gold()
                 )
-                app_embed.add_field(name="Submitted Reason", value=pending.get("original_reason") or "None", inline=False)
-                app_embed.add_field(name="Corrected Reason", value=reason, inline=False)
             else:
                 app_embed = discord.Embed(
-                    title="Post Deletion Approved",
-                    description=f"Your post deletion request was approved by {interaction.user.mention}.",
+                    description=f"**Status: Approved**\nYour post deletion request was approved by {interaction.user.mention}.",
                     color=discord.Color.green()
                 )
-                if reason:
-                    reason_val = reason if len(reason) <= 1024 else reason[:1021] + "..."
-                    app_embed.add_field(name="Reason", value=reason_val, inline=False)
 
             ping_text = f"<@{staff_id}>"
             if rev_msg:
@@ -1176,14 +1178,14 @@ class WarningTracker(commands.Cog):
 
         # 4. Ping the staff member who submitted the deletion request (if not self)
         if staff_id and not is_self:
+            desc = f"**Status: Rejected**\nYour post deletion request was rejected by {interaction.user.mention}."
+            if reject_reason and reject_reason != "No reason provided.":
+                reason_val = reject_reason if len(reject_reason) <= 500 else reject_reason[:497] + "..."
+                desc += f"\n\n**Reason:** {reason_val}"
             reject_embed = discord.Embed(
-                title="Post Deletion Rejected",
-                description=f"Your post deletion request was rejected by {interaction.user.mention}.",
+                description=desc,
                 color=discord.Color.red()
             )
-            if reject_reason:
-                reason_val = reject_reason if len(reject_reason) <= 1024 else reject_reason[:1021] + "..."
-                reject_embed.add_field(name="Reason", value=reason_val, inline=False)
 
             ping_text = f"<@{staff_id}>"
             if rev_msg:
