@@ -221,10 +221,11 @@ class WarningTracker(commands.Cog):
             log_embed.add_field(name="Original Post Created At", value=f"<t:{orig_ts}:f> (<t:{orig_ts}:R>)", inline=True)
             log_embed.add_field(name="Post Deleted At", value=f"<t:{del_ts}:f> (<t:{del_ts}:R>)", inline=True)
             
-            reason_text = reason
-            if len(reason_text) > 1024:
-                reason_text = reason_text[:1021] + "..."
-            log_embed.add_field(name="Rejection Reason", value=reason_text, inline=False)
+            reason_embed = discord.Embed(
+                title="Removal Reason",
+                description=reason[:4096],
+                color=discord.Color.orange()
+            )
             
             dashboard_url = os.getenv("DASHBOARD_URL", "localhost:3000")
             if dashboard_url.startswith("http://") or dashboard_url.startswith("https://"):
@@ -273,7 +274,7 @@ class WarningTracker(commands.Cog):
 
                 
             try:
-                await log_channel.send(embed=log_embed)
+                await log_channel.send(embeds=[log_embed, reason_embed])
             except Exception as e:
                 await interaction.followup.send(f"Warning: Failed to send log embed: {e}", ephemeral=True)
                 print(f"Error sending log embed: {e}")
@@ -572,10 +573,11 @@ class WarningTracker(commands.Cog):
         review_embed.add_field(name="Original Post Created At", value=f"<t:{orig_ts}:f> (<t:{orig_ts}:R>)", inline=True)
         review_embed.add_field(name="Marked For Deletion At", value=f"<t:{marked_ts}:f> (<t:{marked_ts}:R>)", inline=True)
         
-        reason_text = reason
-        if len(reason_text) > 1024:
-            reason_text = reason_text[:1021] + "..."
-        review_embed.add_field(name="Removal Reason", value=reason_text, inline=False)
+        reason_embed = discord.Embed(
+            title="Removal Reason",
+            description=reason[:4096],
+            color=discord.Color.yellow()
+        )
 
         # Only add content snippet and attachments to embed if preview message could not be sent
         if not preview_msg:
@@ -593,12 +595,12 @@ class WarningTracker(commands.Cog):
         review_view = PendingDeletionReviewView(pending_id, cog=self)
         if preview_msg:
             try:
-                review_msg = await preview_msg.reply(embed=review_embed, view=review_view, mention_author=False)
+                review_msg = await preview_msg.reply(embeds=[review_embed, reason_embed], view=review_view, mention_author=False)
             except Exception as e:
                 print(f"Failed to reply to preview message: {e}")
-                review_msg = await review_channel.send(embed=review_embed, view=review_view)
+                review_msg = await review_channel.send(embeds=[review_embed, reason_embed], view=review_view)
         else:
-            review_msg = await review_channel.send(embed=review_embed, view=review_view)
+            review_msg = await review_channel.send(embeds=[review_embed, reason_embed], view=review_view)
         
         if preview_msg:
             await database.update_pending_post_deletion_preview_msg(pending_id, preview_msg.id)
@@ -690,7 +692,9 @@ class WarningTracker(commands.Cog):
                 actioned_val = f"Cancelled on <t:{now_ts}:f>\n**Reason:** {reason}"
                 emb.add_field(name="Actioned", value=actioned_val, inline=False)
                 try:
-                    await rev_msg.edit(embed=emb, view=None)
+                    if len(rev_msg.embeds) > 1:
+                        rev_msg.embeds[1].color = discord.Color.dark_grey()
+                    await rev_msg.edit(embeds=rev_msg.embeds, view=None)
                 except Exception as e:
                     print(f"Could not update review message: {e}")
 
@@ -726,7 +730,9 @@ class WarningTracker(commands.Cog):
                         emb.color = discord.Color.dark_grey()
                         emb.title = "Pending Post Deletion [CANCELLED]"
                     try:
-                        await rev_msg.edit(embed=emb, view=None)
+                        if len(rev_msg.embeds) > 1:
+                            rev_msg.embeds[1].color = emb.color
+                        await rev_msg.edit(embeds=rev_msg.embeds, view=None)
                     except Exception:
                         pass
             await interaction.response.send_message(f"This request has already been actioned ({st}).", ephemeral=True)
@@ -1055,7 +1061,9 @@ class WarningTracker(commands.Cog):
                     actioned_val += f"\n{' • '.join(links)}"
                 emb.add_field(name="Actioned", value=actioned_val, inline=False)
                 try:
-                    await rev_msg.edit(embed=emb, view=None)
+                    if len(rev_msg.embeds) > 1:
+                        rev_msg.embeds[1].color = discord.Color.green()
+                    await rev_msg.edit(embeds=rev_msg.embeds, view=None)
                 except Exception as e:
                     print(f"Could not update review message: {e}")
 
@@ -1126,7 +1134,9 @@ class WarningTracker(commands.Cog):
                         emb.color = discord.Color.dark_grey()
                         emb.title = "Pending Post Deletion [CANCELLED]"
                     try:
-                        await rev_msg.edit(embed=emb, view=None)
+                        if len(rev_msg.embeds) > 1:
+                            rev_msg.embeds[1].color = emb.color
+                        await rev_msg.edit(embeds=rev_msg.embeds, view=None)
                     except Exception:
                         pass
             await interaction.response.send_message(f"This request has already been actioned ({st}).", ephemeral=True)
@@ -1170,7 +1180,9 @@ class WarningTracker(commands.Cog):
                     actioned_val += f"\n**Reason:** {reject_reason}"
                 emb.add_field(name="Actioned", value=actioned_val, inline=False)
                 try:
-                    await rev_msg.edit(embed=emb, view=None)
+                    if len(rev_msg.embeds) > 1:
+                        rev_msg.embeds[1].color = discord.Color.red()
+                    await rev_msg.edit(embeds=rev_msg.embeds, view=None)
                 except Exception as e:
                     print(f"Could not update review message: {e}")
 

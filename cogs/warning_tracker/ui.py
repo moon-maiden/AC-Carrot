@@ -256,19 +256,26 @@ class EditPendingReasonSelect(discord.ui.Select):
         self.current_channel_mention = current_channel_mention
         options = [discord.SelectOption(label=r['label'][:100], value=r['id'][:100]) for r in reasons_db]
         options.append(discord.SelectOption(label="Others...", value="others"))
-        super().__init__(placeholder="Choose a new removal reason...", options=options[:25], min_values=1, max_values=1)
+        super().__init__(placeholder="Choose a new removal reason...", options=options[:25], min_values=1, max_values=len(options[:25]))
 
     async def callback(self, interaction: discord.Interaction):
         reasons_map = {r['id']: r['text'] for r in self.reasons_db}
-        if self.values[0] == "others":
-            modal = EditPendingCustomReasonModal(self.pending_id, self.cog, self.current_channel_mention)
+        
+        if "others" in self.values:
+            predefined = [reasons_map[v] for v in self.values if v != "others" and v in reasons_map]
+            modal = EditPendingCustomReasonModal(self.pending_id, self.cog, self.current_channel_mention, predefined_reasons=predefined)
             await interaction.response.send_modal(modal)
         else:
-            selected_text = reasons_map[self.values[0]]
-            if selected_text.startswith("as "):
-                new_reason = f"Your post has been removed from {self.current_channel_mention} {selected_text}"
+            if len(self.values) == 1:
+                selected_text = reasons_map[self.values[0]]
+                if selected_text.startswith("as "):
+                    new_reason = f"Your post has been removed from {self.current_channel_mention} {selected_text}"
+                else:
+                    new_reason = f"Your post has been removed from {self.current_channel_mention} due to {selected_text}"
             else:
-                new_reason = f"Your post has been removed from {self.current_channel_mention} due to {selected_text}"
+                formatted_list = "\n".join([f"- {reasons_map[v]}" for v in self.values if v in reasons_map])
+                new_reason = f"Your post has been removed from {self.current_channel_mention} due to:\n{formatted_list}"
+                
             await self.cog.apply_edited_reason(interaction, self.pending_id, new_reason)
 
 class EditPendingReasonView(discord.ui.View):
@@ -277,11 +284,12 @@ class EditPendingReasonView(discord.ui.View):
         self.add_item(select_item)
 
 class EditPendingCustomReasonModal(discord.ui.Modal, title="Edit Removal Reason"):
-    def __init__(self, pending_id: int, cog, channel_mention: str):
+    def __init__(self, pending_id: int, cog, channel_mention: str, predefined_reasons: list = None):
         super().__init__()
         self.pending_id = pending_id
         self.cog = cog
         self.channel_mention = channel_mention
+        self.predefined_reasons = predefined_reasons or []
 
     custom_reason = discord.ui.TextInput(
         label="New Reason",
@@ -293,7 +301,13 @@ class EditPendingCustomReasonModal(discord.ui.Modal, title="Edit Removal Reason"
 
     async def on_submit(self, interaction: discord.Interaction):
         sanitized = sanitize_reason(self.custom_reason.value)
-        new_reason = f"Your post has been removed from {self.channel_mention} due to {sanitized}"
+        if self.predefined_reasons:
+            reasons_list = self.predefined_reasons + [sanitized]
+            formatted_list = "\n".join([f"- {r}" for r in reasons_list])
+            new_reason = f"Your post has been removed from {self.channel_mention} due to:\n{formatted_list}"
+        else:
+            new_reason = f"Your post has been removed from {self.channel_mention} due to {sanitized}"
+            
         await self.cog.apply_edited_reason(interaction, self.pending_id, new_reason)
 
 class VerbalPreviewView(discord.ui.View):
