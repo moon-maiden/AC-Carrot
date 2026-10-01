@@ -425,6 +425,17 @@ class PaidRequest(commands.Cog):
                     ephemeral=True
                 )
                 return
+            
+            try:
+                test_dm = await interaction.user.send("Checking DM permissions...")
+                await test_dm.delete()
+            except discord.Forbidden:
+                await interaction.response.send_message(
+                    "❌ **You must enable Server DMs to submit a request.**\n\nCarrot needs to DM you the approval status and a copy of your request. To enable DMs:\n1. Right-click this server's icon.\n2. Click **Privacy Settings**.\n3. Turn on **Direct Messages**.",
+                    ephemeral=True
+                )
+                return
+
             await interaction.response.send_modal(PaidRequestModal())
             return
             

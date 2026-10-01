@@ -2038,6 +2038,48 @@ class WarningTracker(commands.Cog):
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
+    @app_commands.command(name="clear_reviews", description="Silently prune stale training wheel review cards (older than 2 days).")
+    async def clear_reviews(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        config = await database.get_guild_config(interaction.guild_id or 0)
+        tl_role_id = config.get("team_leader_role_id") or 0
+        is_admin = interaction.user.guild_permissions.administrator if interaction.guild else False
+        user_role_ids = [r.id for r in interaction.user.roles] if hasattr(interaction.user, 'roles') else []
+        
+        if interaction.user.id != 255174440005009408 and not is_admin and tl_role_id not in user_role_ids:
+            await interaction.followup.send("You must be an Admin or Team Leader to use this command.", ephemeral=True)
+            return
+
+        stale_reviews = await database.get_stale_pending_post_deletions(days=2)
+        pruned_count = 0
+        
+        for pending in stale_reviews:
+            if pending.get("guild_id") != interaction.guild_id:
+                continue
+                
+            # Update DB to expired
+            await database.update_pending_post_deletion_status(pending["id"], "expired", reject_reason="Expired after 2 days")
+            
+            # Delete review message
+            review_msg_id = pending.get("review_message_id")
+            rev_msg = None
+            if review_msg_id:
+                rev_msg = await self._get_review_message(interaction, review_msg_id, config)
+                if rev_msg:
+                    try:
+                        await rev_msg.delete()
+                    except discord.NotFound:
+                        pass
+                    except discord.HTTPException:
+                        pass
+                        
+            # Delete preview message
+            await self._cleanup_preview_message(interaction, pending, rev_msg)
+            
+            pruned_count += 1
+            
+        await interaction.followup.send(f"Silently pruned {pruned_count} expired training wheel reviews.", ephemeral=True)
+
     @commands.command(name="carrothelp")
     async def help_command(self, ctx):
         view = HelpPaginationView()

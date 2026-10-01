@@ -1416,3 +1416,10 @@ async def claim_pending_post_deletion(pending_id: int) -> bool:
         cursor = await db.execute("UPDATE pending_post_deletions SET status = 'processing' WHERE id = ? AND status = 'pending'", (pending_id,))
         await db.commit()
         return cursor.rowcount > 0
+
+async def get_stale_pending_post_deletions(days: int = 2) -> list:
+    async with aiosqlite.connect(DB_NAME) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(f"SELECT * FROM pending_post_deletions WHERE status = 'pending' AND datetime(post_created_at) <= datetime('now', '-{days} days')")
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
